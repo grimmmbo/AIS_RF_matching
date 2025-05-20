@@ -48,7 +48,10 @@ def filter_by_speed(df, min_speed = 1, max_speed = 60):
     df_avg_speeds = df.groupby(["MMSI", 'SubTrackID'])['speed_kmph'].mean().reset_index()
     
     # Filter vessels based on speed
-    df_filterd = df_avg_speeds[(df_avg_speeds['speed_kmph'] >= min_speed) & (df_avg_speeds['speed_kmph'] <= max_speed)]
+    valid_tracks = df_avg_speeds[(df_avg_speeds['speed_kmph'] >= min_speed) & (df_avg_speeds['speed_kmph'] <= max_speed)][["MMSI", 'SubTrackID']]
+    
+    # Merge to get original data
+    df_filterd = df.merge(valid_tracks, on=["MMSI", 'SubTrackID'], how='inner')
     
     return df_filterd
 
