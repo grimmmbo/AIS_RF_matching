@@ -46,7 +46,8 @@ class PHMM:
         Performs the forward pass of the Viterbi algorithm, calculating the highest probability paths to each state at each step in the alignment matrix
         """
         for state in self.states:
-            self.γ[state.id, 0, 0] = 1.0 if state.name == "begin" else 0.0
+            # self.γ[state.id, 0, 0] = 1.0 if state.name == "begin" else 0.0
+            self.γ[state.id, 0, 0] = 0.0 if state.name == "begin" else  -np.inf
             
         for i in range(self.num_AIS):
             for j in range(self.num_RF):
@@ -70,11 +71,20 @@ class PHMM:
                             prev_prob = self.γ[prev_state.id, prev_i, prev_j]
                             trans_prob = curr_state.transition(prev_state.name, prev_i, prev_j, self.AIS_seq, self.RF_seq)
                             emiss_prob = curr_state.emission(observation)
-                            prob = prev_prob * trans_prob * emiss_prob
+                            # prob = prev_prob * trans_prob * emiss_prob
+                            log_trans_prob = np.log(trans_prob + 1e-300)
+                            log_emiss_prob = np.log(emiss_prob + 1e-300)
+                            prob = prev_prob + log_trans_prob + log_emiss_prob
+                            
+                            # print(f"[INDUCTION] ({i},{j}) {prev_state.name}→{curr_state.name}: "
+                            #   f"prev_prob={prev_prob:.4e}, trans_prob={trans_prob:.4e}, "
+                            #   f"emiss_prob={emiss_prob:.4e}, prob={prob:.4e}")
                             
                             if prob > best_prob:
                                 best_prob = prob
                                 best_state_id = prev_state.id
+                            # print(f"[FINAL CHOICE] γ[{curr_state.name}, {i}, {j}] = {best_prob:.4e}, π = {best_state_id}")
+
 
                     self.γ[curr_state.id, i, j] = best_prob
                     self.π[curr_state.id, i, j] = best_state_id
@@ -93,7 +103,9 @@ class PHMM:
         for prev_state in self.states:
             if prev_state.name in self.end_state.get_predecessors(end_i, end_j):
                 trans_prob = self.end_state.transition(prev_state.name, end_i, end_j, self.AIS_seq, self.RF_seq)
-                prob = self.γ[prev_state.id, end_i, end_j] * trans_prob
+                # prob = self.γ[prev_state.id, end_i, end_j] * trans_prob
+                log_trans_prob = np.log(trans_prob + 1e-300)
+                prob = self.γ[prev_state.id, end_i, end_j] + log_trans_prob
                 
                 if prob > best_prob:
                     best_prob = prob

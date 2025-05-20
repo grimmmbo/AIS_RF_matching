@@ -24,7 +24,7 @@ class TransitionCalculator:
         Returns:
             float: Transition probability based on time and distance between two points
         """
-        seq_i, seq_j = prev_i - 1, prev_j -1
+        seq_i, seq_j = prev_i - 1, prev_j - 1
         
         if seq_i < 0 or seq_i + 1 >= len(AIS_seq):
             return 0.0
@@ -174,7 +174,9 @@ class TransitionCalculator:
         curr_point = AIS_seq[seq_i + 1]
         prev_AIS, prev_RF = AIS_seq[seq_i], RF_seq[seq_j]
         time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
-        
+        if (time, dist) == (0,0):
+            return 0.0
+                
         return AIS_RF_probability(time, dist)
 
     @staticmethod
@@ -199,6 +201,8 @@ class TransitionCalculator:
         curr_point = RF_seq[seq_j + 1]
         prev_AIS, prev_RF = AIS_seq[seq_i], RF_seq[seq_j]
         time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
+        if (time, dist) == (0,0):
+            return 0.0
         
         return AIS_RF_probability(time, dist)
 

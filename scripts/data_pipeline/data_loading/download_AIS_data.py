@@ -47,7 +47,7 @@ def download_AIS_data(start_date, end_date, url, output_file):
 if __name__ == "__main__":
     print("Downloading has started...")
     
-    DESTINATION_PATH = "data/raw/AIS_01_2024.parquet"
+    DESTINATION_PATH = "../../../../data/raw/AIS_01_2024.parquet"
     
     download_AIS_data(
         start_date = datetime(2024, 1, 1),

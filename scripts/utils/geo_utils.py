@@ -64,4 +64,8 @@ def compute_average_time_and_distance(curr_point, prev_point_AIS, prev_point_RF)
     """
     time_1, distance_1 = compute_time_and_distance(curr_point, prev_point_AIS)
     time_2, distance_2 = compute_time_and_distance(curr_point, prev_point_RF)
+    
+    if time_1 < 0 or time_2 < 0:
+        return (0,0)
+    
     return ((time_1 + time_2) / 2, (distance_1 + distance_2) / 2)

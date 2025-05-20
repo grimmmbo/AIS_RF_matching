@@ -34,6 +34,6 @@ def match_probability(diff_time_sec, diff_dist_km, max_time=120, max_dist=2.0):
         0.12 * np.exp(-25 * ((x_norm - 0.25)**2 + (y_norm - 0.25)**2)) +
         0.10 * np.exp(-20 * ((x_norm - 0.1)**2 + (y_norm - 0.1)**2)))
 
-    prob = 0.55 + peak1 + peak2 + center_boost + bumps - penalty1 - penalty2
+    prob = 0.5 + peak1 + peak2 + center_boost + bumps - penalty1 - penalty2
     
     return float(np.clip(prob, 0, 1))

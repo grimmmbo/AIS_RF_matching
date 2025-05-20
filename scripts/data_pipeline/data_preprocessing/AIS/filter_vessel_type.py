@@ -38,7 +38,7 @@ if __name__ == "__main__":
     
     SOURCE_DATA_PATH = "../../../../data/raw/AIS_01_2024.pkl"
     SOURCE_JSON_PATH = "../../../../config/mappings/vessel_type_names.json"
-    DESTINATION_PATH = f"data/processed/{vessel_name.lower()}_vessels.parquet"
+    DESTINATION_PATH = f"../../../../data/processed/{vessel_name.lower()}_vessels.parquet"
 
     filter_on_vessel_type(SOURCE_DATA_PATH, SOURCE_JSON_PATH, DESTINATION_PATH, vessel_name)
     

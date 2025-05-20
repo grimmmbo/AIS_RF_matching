@@ -67,7 +67,7 @@ if __name__ == "__main__":
     print("Segmenting vessel tracks has started...")
     
     SOURCE_PATH = "../../../../data/processed/cargo_vessels.parquet"
-    DESTINATION_PATH = "data/processed/segmented_tracks.parquet"
+    DESTINATION_PATH = "../../../../data/processed/segmented_tracks.parquet"
 
     df = pd.read_parquet(SOURCE_PATH)
     split_df = split_vessel_tracks(df)

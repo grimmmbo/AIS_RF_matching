@@ -23,8 +23,8 @@ if __name__ == "__main__":
     print("Splitting dataset into train and test sets...")
     
     SOURCE_PATH = "../../../../data/processed/phmm_sequence.parquet"
-    DESTINATION_PATH_TRAIN_SET = "data/train_data/train_set.pkl"
-    DESTINATION_PATH_TEST_SET = "data/test_data/test_set.pkl"
+    DESTINATION_PATH_TRAIN_SET = "../../../../data/train_data/train_set.pkl"
+    DESTINATION_PATH_TEST_SET = "../../../../data/test_data/test_set.pkl"
 
     PHMM_df = pd.read_parquet(SOURCE_PATH)
 
