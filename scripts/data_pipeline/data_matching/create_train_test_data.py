@@ -22,12 +22,13 @@ def split_train_test(df, path_train_set, path_test_set, test_size=0.2, random_st
 if __name__ == "__main__":
     print("Splitting dataset into train and test sets...")
     
-    SOURCE_PATH = "../../../../data/processed/phmm_sequence.parquet"
-    DESTINATION_PATH_TRAIN_SET = "../../../../data/train_data/train_set.pkl"
-    DESTINATION_PATH_TEST_SET = "../../../../data/test_data/test_set.pkl"
+    SOURCE_PATH = "../../../data/processed/PHMM_sequence_data.parquet"
+    DESTINATION_PATH_TRAIN_SET = "../../../data/processed/train_data/train_set.pkl"
+    DESTINATION_PATH_TEST_SET = "../../../data/processed/test_data/test_set.pkl"
 
     PHMM_df = pd.read_parquet(SOURCE_PATH)
-
     split_train_test(PHMM_df, DESTINATION_PATH_TRAIN_SET, DESTINATION_PATH_TEST_SET)
     
     print("Data is saved...")
+    
+   

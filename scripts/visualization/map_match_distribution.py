@@ -74,7 +74,7 @@ def plot_extreme_match_distribution():
     Z = np.vectorize(match_probability)(X, Y)
 
     colors = ["#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
-    colors_extreme_points = ["#d53e4f", "#3288bd", "#66c2a5", "#fdae61"]
+    colors_extreme_points = ["#d53e4f", "#3288bd", "#66c2a5", '#e50da2']
     labels = ["(0s, 0km)", "(120s, 0km)", "(0s, 2km)", "(120s, 2km)"]
     plotly_colorscale = [[i / (len(colors) - 1), c] for i, c in enumerate(colors)]
     
@@ -110,6 +110,7 @@ def plot_extreme_match_distribution():
             zaxis_title='Probability'),
         width=900,
         height=700,
+        showlegend=False,
         margin=dict(l=0, r=0, b=0, t=40))
 
     fig.show()

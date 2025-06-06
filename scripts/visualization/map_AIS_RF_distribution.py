@@ -23,8 +23,8 @@ def plot_AIS_RF_distribution():
         resolution (int): Grid resolution (default 100x100)
     """
 
-    x_vals = np.linspace(0, 36000, 100)
-    y_vals = np.linspace(0, 600, 100)
+    x_vals = np.linspace(0, 16200, 100)
+    y_vals = np.linspace(0, 200, 100)
     X, Y = np.meshgrid(x_vals, y_vals)
     Z = np.vectorize(AIS_RF_probability)(X, Y)
 
@@ -38,7 +38,7 @@ def plot_AIS_RF_distribution():
     fig.update_layout(
         title="Transition Probability Surface",
         scene=dict(
-            xaxis_title='Time (min)',
+            xaxis_title='Time (sec)',
             yaxis_title='Distance (km)',
             zaxis_title='Probability'
         ),

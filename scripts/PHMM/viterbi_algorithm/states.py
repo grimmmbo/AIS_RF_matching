@@ -110,7 +110,12 @@ class AISState(State):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        return normalize(transitions, self.name)
+        # return normalize(transitions, self.name)
+        
+        # test
+        base_prob = normalize(transitions, self.name)
+        square_root = base_prob ** 0.5
+        return square_root
 
     def Δ(self):
         return (1, 0)
@@ -139,7 +144,12 @@ class RFState(State):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        return normalize(transitions, self.name)
+        # return normalize(transitions, self.name)
+        
+        # test
+        base_prob = normalize(transitions, self.name)
+        exponent = 2
+        return base_prob ** exponent
             
     def Δ(self):
         return (0, 1)
@@ -168,7 +178,12 @@ class MState(State):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        return normalize(transitions, self.name)
+        # return normalize(transitions, self.name)
+        
+        # test
+        base_prob = normalize(transitions, self.name)
+        exponent = 2
+        return base_prob ** exponent
 
     def Δ(self):
         return (1, 1)

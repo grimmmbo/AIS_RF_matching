@@ -33,10 +33,10 @@ class PHMM:
         self.num_AIS = len(AIS_seq) + 1
         self.num_RF = len(RF_seq) + 1
         self.num_states = len(self.states)
-        
+                
         self.γ = np.full((self.num_states, self.num_AIS, self.num_RF), -np.inf)
         self.π = np.full((self.num_states, self.num_AIS, self.num_RF), -1)
-        
+                
         self._induction()
         self._handle_end_state() 
         return self._backtracking()
@@ -131,11 +131,13 @@ class PHMM:
         curr_state = self.states[final_state]
 
         path = ["end", curr_state.name]
+        log_probs = [final_prob, self.γ[curr_state.id, i, j]]
 
         while i > 0 or j > 0:
             prev_id = self.π[curr_state.id, i, j]
             if prev_id == -1:
                 path.append("begin")
+                log_probs.append(self.γ[curr_state.id, i, j])
                 break
 
             if curr_state.name == "AIS":
@@ -148,6 +150,8 @@ class PHMM:
 
             curr_state = self.states[prev_id]
             path.append(curr_state.name)
+            log_probs.append(self.γ[curr_state.id, i, j])
         
         path.reverse()
-        return path, final_prob 
+        log_probs.reverse()
+        return path, final_prob, log_probs

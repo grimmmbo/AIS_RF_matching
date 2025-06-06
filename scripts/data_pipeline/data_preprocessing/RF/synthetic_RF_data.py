@@ -138,10 +138,10 @@ def create_synthetic_RF_data(df):
     return pd.DataFrame(RF_records)
 
 if __name__ == "__main__":
-    print("Generating synthetic data has started...")
+    print("Generating synthetic RF data has started...")
         
-    SOURCE_PATH = "../../../../data/processed/segmented_tracks.parquet"
-    DESTINATION_PATH = "data/processed/synthetic_RF_data.parquet"
+    SOURCE_PATH = "../../../../data/processed/filtered_AIS_by_speed.parquet"
+    DESTINATION_PATH = "../../../../data/processed/synthetic_RF_data.parquet"
     
     df = pd.read_parquet(SOURCE_PATH)
     RF_df = create_synthetic_RF_data(df)

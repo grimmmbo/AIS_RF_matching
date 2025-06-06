@@ -40,8 +40,8 @@ def assign_state_labels(matched, unmatched, columns):
     matched['Timestamp'] = matched['TimeStamp_AIS']
     matched['AIS_Timestamp'] = matched['TimeStamp_AIS']
     matched['RF_Timestamp'] = matched['TimeStamp_RF']
-    matched['AIS'] = list(zip(matched['AIS_LAT'], matched['AIS_LON']))
-    matched['RF'] = list(zip(matched['RF_LAT'], matched['RF_LON']))
+    matched['AIS'] = matched.apply(lambda row: (row['AIS_LAT'], row['AIS_LON']), axis = 1)
+    matched['RF'] = matched.apply(lambda row: (row['RF_LAT'], row['RF_LON']), axis = 1)
 
     # Unmatched pairs get state 'RF'
     unmatched['State'] = 'RF'
@@ -49,7 +49,7 @@ def assign_state_labels(matched, unmatched, columns):
     unmatched['AIS_Timestamp'] = None
     unmatched['RF_Timestamp'] = unmatched['TimeStamp_RF']
     unmatched['AIS'] = None
-    unmatched['RF'] = list(zip(unmatched['RF_LAT'], unmatched['RF_LON']))
+    unmatched['RF'] = unmatched.apply(lambda row: (row['RF_LAT'], row['RF_LON']), axis = 1)
 
     return matched[columns], unmatched[columns]
 
@@ -75,7 +75,7 @@ def extract_unmatched_AIS_data(AIS_data, matched, columns):
     )
     df = df[df['_merge'] == 'left_only'].copy()
     
-    df['AIS'] = list(zip(df['LAT'], df['LON']))
+    df['AIS'] = df.apply(lambda row: (row['LAT'], row['LON']), axis = 1)
     df['RF'] = None
     df['Timestamp'] = df['BaseDateTime']
     df['AIS_Timestamp'] = df['BaseDateTime']
@@ -199,9 +199,9 @@ def build_PHHM_sequence_dataframe(AIS_data, RF_data, time_tolerance_minutes=1):
 if __name__ == "__main__":
     print("Starting PHMM sequence generation...")
         
-    AIS_SOURCE_PATH = "../../../../data/processed/modified_AIS_data.parquet"
-    RF_SOURCE_PATH = "../../../../data/processed/synthetic_RF_data.parquet"
-    DESTINATION_PATH = "data/processed/PHMM_sequence_data.parquet"
+    AIS_SOURCE_PATH = "../../../data/processed/modified_AIS_data.parquet"
+    RF_SOURCE_PATH = "../../../data/processed/synthetic_RF_data.parquet"
+    DESTINATION_PATH = "../../../data/processed/PHMM_sequence_data.parquet"
     
     AIS_df = pd.read_parquet(AIS_SOURCE_PATH)
     RF_df = pd.read_parquet(RF_SOURCE_PATH)
