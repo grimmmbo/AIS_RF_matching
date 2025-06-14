@@ -10,7 +10,6 @@ from scripts.PHMM.distributions.AIS_RF_distribution import AIS_RF_probability
 import numpy as np
 import plotly.graph_objects as go
 
-
 def plot_AIS_RF_distribution():
     """
     Plots a transition probability surface over time and distance using a specified transition probability function.
@@ -23,8 +22,8 @@ def plot_AIS_RF_distribution():
         resolution (int): Grid resolution (default 100x100)
     """
 
-    x_vals = np.linspace(0, 16200, 100)
-    y_vals = np.linspace(0, 200, 100)
+    x_vals = np.linspace(0, 551, 50)
+    y_vals = np.linspace(0, 7, 50)
     X, Y = np.meshgrid(x_vals, y_vals)
     Z = np.vectorize(AIS_RF_probability)(X, Y)
 

@@ -11,25 +11,13 @@ import plotly.graph_objects as go
 import numpy as np
 from haversine import haversine, Unit
 
-def plot_empirical_match_distribution(df):
+def plot_empirical_match_distribution():
     """
     Visualizes the match probability surface between AIS and RF data points using a saddle-shaped distribution
 
     Args:
         df (pd.DataFrame): Dataframe containing AIS and RF data points
     """
-    # Get matched AIS and RF pairs 
-    df = df[df["State"] == "M"].copy()
-    
-    # Compute absolute time difference
-    df['delta_t_sec'] = (df['AIS_Timestamp'] - df['RF_Timestamp']).abs().dt.total_seconds()
-    
-    # Compute distance between AIS and RF coordinates 
-    df['delta_d_km'] = df.apply(lambda row: haversine(row['AIS'], row['RF'], unit=Unit.KILOMETERS), axis=1)
-    
-    # Calculate the match probability for each point 
-    df = df[['delta_t_sec', 'delta_d_km']].copy()
-    df["prob"] = df.apply(lambda row: match_probability(row["delta_t_sec"], row["delta_d_km"]), axis=1)
 
     x_vals = np.linspace(0, 120, 100)
     y_vals = np.linspace(0, 2.0, 100)
@@ -43,13 +31,6 @@ def plot_empirical_match_distribution(df):
     fig = go.Figure()
 
     fig.add_trace(go.Surface(z=Z, x=X, y=Y, colorscale=plotly_colorscale, showscale=True))
-    fig.add_trace(go.Scatter3d(
-        x=df["delta_t_sec"],
-        y=df["delta_d_km"],
-        z=df["prob"],
-        mode='markers+text',
-        marker=dict(size=6, color='#e50da2'),
-        name="AIS & RF Match"))
 
     fig.update_layout(
         title="Match Probability Surface (Saddle-Based)",

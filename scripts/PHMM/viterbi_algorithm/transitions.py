@@ -10,14 +10,6 @@ from scripts.PHMM.distributions.AIS_RF_distribution import AIS_RF_probability
 from scripts.utils.geo_utils import *
 
 class TransitionCalculator:
-    #test
-    gap_counter = 0
-    
-    @staticmethod
-    def reset_gap_counter():
-        print("[RESET] gap_counter = 0")
-        TransitionCalculator.gap_counter = 0
-    
     @staticmethod
     def AIS_to_AIS(prev_i, prev_j, AIS_seq, RF_seq):
         """
@@ -39,12 +31,6 @@ class TransitionCalculator:
         
         curr_point, prev_point = AIS_seq[seq_i + 1], AIS_seq[seq_i]
         time, dist = compute_time_and_distance(curr_point, prev_point)
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"AIS_to_AIS: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
         
         return AIS_RF_probability(time, dist)
 
@@ -69,12 +55,6 @@ class TransitionCalculator:
         
         curr_point, prev_point = RF_seq[seq_j + 1], AIS_seq[seq_i]
         time, dist = compute_time_and_distance(curr_point, prev_point)
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"AIS_to_RF: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
 
         return AIS_RF_probability(time, dist)
 
@@ -99,12 +79,6 @@ class TransitionCalculator:
         
         curr_AIS, curr_RF = AIS_seq[seq_i + 1], RF_seq[seq_j + 1]
         time, dist = compute_abs_time_and_distance(curr_AIS, curr_RF)
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"AIS_to_M: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
 
         return match_probability(time, dist)
 
@@ -129,12 +103,6 @@ class TransitionCalculator:
         curr_point, prev_point = AIS_seq[seq_i + 1], RF_seq[seq_j]
         time, dist = compute_time_and_distance(curr_point, prev_point)
         
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"RF_to_AIS: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
-        
         return AIS_RF_probability(time, dist)
 
     @staticmethod
@@ -157,12 +125,6 @@ class TransitionCalculator:
         
         curr_point, prev_point = RF_seq[seq_j + 1], RF_seq[seq_j]
         time, dist = compute_time_and_distance(curr_point, prev_point)
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"RF_to_RF: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
         
         return AIS_RF_probability(time, dist)
 
@@ -188,12 +150,6 @@ class TransitionCalculator:
         curr_AIS, curr_RF = AIS_seq[seq_i + 1], RF_seq[seq_j + 1]
         time, dist = compute_abs_time_and_distance(curr_AIS, curr_RF)
         
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"RF_to_M: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
-        
         return match_probability(time, dist)
 
     @staticmethod
@@ -217,16 +173,16 @@ class TransitionCalculator:
         
         curr_point = AIS_seq[seq_i + 1]
         prev_AIS, prev_RF = AIS_seq[seq_i], RF_seq[seq_j]
-        time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
+        
+        if prev_AIS[0] > prev_RF[0]:
+            time, dist = compute_time_and_distance(curr_point, prev_AIS)
+        else:
+            time, dist = compute_time_and_distance(curr_point, prev_RF)
+        
+        # time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
         
         if (time, dist) == (0,0):
             return 0.0
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"M_to_AIS: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
                 
         return AIS_RF_probability(time, dist)
 
@@ -251,16 +207,16 @@ class TransitionCalculator:
         
         curr_point = RF_seq[seq_j + 1]
         prev_AIS, prev_RF = AIS_seq[seq_i], RF_seq[seq_j]
-        time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
+        
+        if prev_AIS[0] > prev_RF[0]:
+            time, dist = compute_time_and_distance(curr_point, prev_AIS)
+        else:
+            time, dist = compute_time_and_distance(curr_point, prev_RF)
+            
+        # time, dist = compute_average_time_and_distance(curr_point, prev_AIS, prev_RF)
         
         if (time, dist) == (0,0):
             return 0.0
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"M_to_RF: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
         
         return AIS_RF_probability(time, dist)
 
@@ -285,12 +241,6 @@ class TransitionCalculator:
         
         curr_AIS, curr_RF = AIS_seq[seq_i + 1], RF_seq[seq_j + 1]
         time, dist = compute_abs_time_and_distance(curr_AIS, curr_RF)
-        
-        # test
-        if time >= 5400:
-            TransitionCalculator.gap_counter += 1
-            print(f"M_to_M: {TransitionCalculator.gap_counter}")
-            return 0.01 * (1/TransitionCalculator.gap_counter)
         
         return match_probability(time, dist)
 

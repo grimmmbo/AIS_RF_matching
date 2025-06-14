@@ -29,11 +29,13 @@ def match_probability(diff_time_sec, diff_dist_km, max_time=120, max_dist=2.0):
     penalty1 = amp_penalty[0] * np.exp(-sigma[2] * ((x_norm - 1)**2 + y_norm**2))
     penalty2 = amp_penalty[1] * np.exp(-sigma[2] * (x_norm**2 + (y_norm - 1)**2))
 
+
     bumps = (
         0.08 * np.exp(-20 * ((x_norm - 0.4)**2 + (y_norm - 0.4)**2)) +  
         0.12 * np.exp(-25 * ((x_norm - 0.25)**2 + (y_norm - 0.25)**2)) +
         0.10 * np.exp(-20 * ((x_norm - 0.1)**2 + (y_norm - 0.1)**2)))
 
-    prob = 0.55 + peak1 + peak2 + center_boost + bumps - penalty1 - penalty2
+    prob = 0.57 + peak1 + peak2 + center_boost + bumps - penalty1 - penalty2
     
     return float(np.clip(prob, 0, 1))
+

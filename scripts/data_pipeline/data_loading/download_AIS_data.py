@@ -39,8 +39,10 @@ def download_AIS_data(start_date, end_date, url, output_file):
         # Move to the next day
         current_date += timedelta(days=1)
 
-    # Combine all DataFrames and save
+    # Combine all data
     df = pd.concat(all_data, ignore_index=True)
+    
+    # Save Dataframe
     df.to_parquet(output_file)
     print(f"Data saved to {output_file}")
     

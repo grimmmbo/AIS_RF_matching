@@ -1,6 +1,6 @@
 import numpy as np
 
-def AIS_RF_probability(time_diff_sec, diff_dist_km, max_time=39840, max_dist=160, alpha=9, beta=9):
+def AIS_RF_probability(time_diff_sec, diff_dist_km, max_time=551, max_dist=7, alpha=2, beta=2):
     """
     Computes the transition probability of two points (e.g., AIS -> AIS, AIS -> RF, etc.) based on their time and spatial difference 
 
