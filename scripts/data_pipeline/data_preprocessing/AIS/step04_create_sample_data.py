@@ -15,7 +15,7 @@ def compute_track_characteristics(df):
     """
     track_summary = []
     
-    for id, vessel_data in df.groupby(["ID"]):
+    for id, vessel_data in df.groupby("ID"):
         # Compute track duration in minutes
         timestamps = vessel_data["BaseDateTime"].dropna()
         duration_minutes = (timestamps.max() - timestamps.min()).total_seconds() / 60

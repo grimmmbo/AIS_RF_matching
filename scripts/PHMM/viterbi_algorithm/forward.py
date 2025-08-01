@@ -16,6 +16,28 @@ class PHMM_forward:
         self.states = states
         self.end_state = end_state
         
+    
+    ############## DIT AANGEPAST VOOR GENORMALISEERDE MATCH EMISSIES ################
+    def compute_normalized_match_emissions(self):
+        match_state = next((s for s in self.states if s.name == "M"), None)
+        if not match_state:
+            raise ValueError("Match state (M) not found")
+
+        E = np.zeros((self.num_AIS, self.num_RF))  # inclusief index 0 (dummy)
+        
+        for i in range(1, self.num_AIS):   # let op: indexverschuiving
+            for j in range(1, self.num_RF):
+                obs = (self.AIS_seq[i - 1], self.RF_seq[j - 1])
+                E[i, j] = match_state.emission(obs)
+        
+        # normaliseren per kolom j
+        column_sums = E.sum(axis=0, keepdims=True) + 1e-300
+        E = E / column_sums  # Broadcasting normalisatie
+
+        return E
+    
+    ####################################################################################
+        
     def forward(self, AIS_seq, RF_seq):
         """
         Executes the Forward algorithm 
@@ -27,6 +49,7 @@ class PHMM_forward:
         Returns:
             The probability of a sequence summed over all possible paths 
         """
+
         self.AIS_seq = AIS_seq
         self.RF_seq = RF_seq
         self.num_AIS = len(AIS_seq) + 1
@@ -34,7 +57,11 @@ class PHMM_forward:
         self.num_states = len(self.states)
                 
         self.γ = np.full((self.num_states, self.num_AIS, self.num_RF), -np.inf)
-                
+            
+        ############## DIT AANGEPAST VOOR GENORMALISEERDE MATCH EMISSIES ################
+        self.match_emission_matrix = self.compute_normalized_match_emissions()
+        ########################################################
+
         self._induction()
         return self._final_probability()
     
@@ -69,7 +96,13 @@ class PHMM_forward:
                             trans_prob = curr_state.transition(prev_state.name, prev_i, prev_j, self.AIS_seq, self.RF_seq)
                             log_trans_prob = np.log(trans_prob + 1e-300)
 
-                            emiss_prob = curr_state.emission(observation)
+                            #########################################
+                            if curr_state.name == "M":
+                                emiss_prob = self.match_emission_matrix[i, j]
+                            else:
+                                emiss_prob = curr_state.emission(observation)
+                            #######################################
+
                             log_emiss_prob = np.log(emiss_prob + 1e-300)
                             
                             prob = prev_log_prob + log_trans_prob + log_emiss_prob

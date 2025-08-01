@@ -1,24 +1,12 @@
-import os
-import sys
-
-project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
-if project_root not in sys.path:
-    sys.path.append(project_root)
-    
-from scripts.PHMM.distributions.match_distribution import match_probability
-
 import plotly.graph_objects as go
 import numpy as np
-from haversine import haversine, Unit
+
+from scripts.PHMM.distributions.match_distribution import *
 
 def plot_empirical_match_distribution():
     """
     Visualizes the match probability surface between AIS and RF data points using a saddle-shaped distribution
-
-    Args:
-        df (pd.DataFrame): Dataframe containing AIS and RF data points
     """
-
     x_vals = np.linspace(0, 120, 100)
     y_vals = np.linspace(0, 2.0, 100)
     X, Y = np.meshgrid(x_vals, y_vals)
@@ -27,7 +15,7 @@ def plot_empirical_match_distribution():
     colors = ["#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
     plotly_colorscale = [[i / (len(colors) - 1), c] for i, c in enumerate(colors)]
     
-    # Plot surface and matched points
+    # Plot surface 
     fig = go.Figure()
 
     fig.add_trace(go.Surface(z=Z, x=X, y=Y, colorscale=plotly_colorscale, showscale=True))
@@ -48,15 +36,14 @@ def plot_extreme_match_distribution():
     """
     Visualizes the match probability surface with only extreme values ((0,0), (2,0), (120, 0), (2, 120)) shown as reference points
     """
-
     x_vals = np.linspace(0, 120, 100)
     y_vals = np.linspace(0, 2.0, 100)
     X, Y = np.meshgrid(x_vals, y_vals)
     Z = np.vectorize(match_probability)(X, Y)
 
     colors = ["#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
-    colors_extreme_points = ["#d53e4f", "#3288bd", "#66c2a5", '#e50da2']
-    labels = ["(0s, 0km)", "(120s, 0km)", "(0s, 2km)", "(120s, 2km)"]
+    colors_extreme_points = ["#482966", "#427a86", "#31947d", '#b6c839']
+    labels = ["(a)", "(b)", "(c)", "(d)"]
     plotly_colorscale = [[i / (len(colors) - 1), c] for i, c in enumerate(colors)]
     
     # Define extreme points

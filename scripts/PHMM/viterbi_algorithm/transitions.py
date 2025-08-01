@@ -25,7 +25,6 @@ class TransitionCalculator:
             float: Transition probability based on time and distance between two points
         """
         seq_i, seq_j = prev_i - 1, prev_j - 1
-        
         if seq_i < 0 or seq_i + 1 >= len(AIS_seq):
             return 0.0
         
@@ -48,8 +47,7 @@ class TransitionCalculator:
         Returns:
             float: Transition probability based on time and distance between two points
         """
-        seq_i, seq_j = prev_i - 1, prev_j - 1
-        
+        seq_i, seq_j = prev_i - 1, prev_j - 1  
         if seq_i < 0 or seq_j + 1 >= len(RF_seq):
             return 0.0
         
@@ -73,7 +71,6 @@ class TransitionCalculator:
             float: Transition probability based on time and distance between two points
         """
         seq_i, seq_j = prev_i - 1, prev_j - 1
-        
         if seq_i + 1 >= len(AIS_seq) or seq_j + 1 >= len(RF_seq):
             return 0.0
         
@@ -142,8 +139,7 @@ class TransitionCalculator:
         Returns:
             float: Transition probability based on time and distance between two points
         """
-        seq_i, seq_j = prev_i - 1, prev_j - 1
-        
+        seq_i, seq_j = prev_i - 1, prev_j - 1 
         if seq_i + 1 >= len(AIS_seq) or seq_j + 1 >= len(RF_seq):
             return 0.0
         
@@ -167,7 +163,6 @@ class TransitionCalculator:
             float: Transition probability based on time and distance between two points
         """
         seq_i, seq_j = prev_i - 1, prev_j - 1
-        
         if seq_i < 0 or seq_j < 0 or seq_i + 1 >= len(AIS_seq):
             return 0.0
         
@@ -201,7 +196,6 @@ class TransitionCalculator:
             float: Transition probability based on time and distance between two points
         """
         seq_i, seq_j = prev_i - 1, prev_j - 1
-        
         if seq_i < 0 or seq_j < 0 or seq_j + 1 >= len(RF_seq):
             return 0.0
         
@@ -235,7 +229,6 @@ class TransitionCalculator:
             float: Transition probability based on time and distance between two points
         """
         seq_i, seq_j = prev_i - 1, prev_j - 1
-        
         if seq_i + 1 >= len(AIS_seq) or seq_j + 1 >= len(RF_seq):
             return 0.0
         

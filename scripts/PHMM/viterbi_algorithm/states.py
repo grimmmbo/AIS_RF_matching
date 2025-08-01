@@ -1,9 +1,9 @@
 import os
 import sys
 
-project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
-if project_root not in sys.path:
-    sys.path.append(project_root)
+# project_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
+# if project_root not in sys.path:
+#     sys.path.append(project_root)
     
 from scripts.PHMM.viterbi_algorithm.transitions import *
 from scripts.utils.geo_utils import *
@@ -172,6 +172,7 @@ class MState(State):
 
     def emission(self, observation):
         AIS_obs, RF_obs = observation
+        return 1.0 if AIS_obs is not None and RF_obs is not None else 0.0
         return match_probability(*compute_abs_time_and_distance(AIS_obs, RF_obs))
 
     def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):

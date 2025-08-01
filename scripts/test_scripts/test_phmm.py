@@ -9,7 +9,7 @@ import math
 from scripts.PHMM.viterbi_algorithm.states import *
 from scripts.PHMM.viterbi_algorithm.forward import *
 
-def compute_alignments(RF_signal, distance_threshold, metadata):
+def compute_alignments(RF_signal, distance_threshold, metadata, alpha=1.5):
     """
     Compute the forward alignment score between a single RF signal and multiple AIS sequences
 
@@ -48,6 +48,7 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
             # Calculate forward score
             forward_score = forward_model.forward(AIS_seq, RF_seq)
             adjusted_score = forward_score / len(AIS_seq)
+            adjusted_score_alpha = forward_score / (len(AIS_seq) * alpha)
             
             is_true_match = RF_track_id == AIS_track_id
 
@@ -58,6 +59,7 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
                 "AIS_track_id": AIS_track_id,
                 "forward_score": forward_score,
                 "normalized_forward_score": adjusted_score,
+                "normalized_forward_score_alpha": adjusted_score_alpha,
                 "is_true_match": is_true_match
             })
             
@@ -96,6 +98,7 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
         # Calculate forward score
         forward_score = forward_model.forward(AIS_seq, RF_seq)
         adjusted_score = forward_score / len(AIS_seq)
+        adjusted_score_alpha = forward_score / (len(AIS_seq) * alpha)
         
         is_true_match = RF_track_id == AIS_track_id
 
@@ -106,12 +109,12 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
             "AIS_track_id": AIS_track_id,
             "forward_score": forward_score,
             "normalized_forward_score": adjusted_score,
+            "normalized_forward_score_alpha": adjusted_score_alpha,
             "is_true_match": is_true_match
         })
 
     return results
 
-# Make metadata per AIS track
 def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
     """
     Precomputes metadata for each AIS track
@@ -157,7 +160,7 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         }
     return meta
 
-def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.23, time_marge = timedelta(minutes = 10)):
+def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.380675025323449, time_marge = timedelta(minutes = 10)):
     """
     Matches RF signals to AIS tracks using forward algorithm, in parallel
 
@@ -176,7 +179,7 @@ def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.23, time_marge
     
     # Group AIS tracks by ID and precompute metadata
     df_grouped = df.groupby("ID")
-    AIS_metadata = make_AIS_metadata(df_grouped, time_marge)
+    AIS_metadata = make_AIS_metadata(df_grouped, distance_threshold, time_marge)
     
     results = []
     
@@ -203,7 +206,7 @@ def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.23, time_marge
 if __name__ == "__main__":
     print("Aligning AIS and RF data...")
 
-    SOURCE_PATH = "../test_scripts/sample_set_5000.pkl"
+    SOURCE_PATH = "../test_scripts/train_data_sample_5000.pkl"
     DESTINATION_PATH = "../test_scripts/alignments_df.pkl"
     
     df = pd.read_pickle(SOURCE_PATH)
