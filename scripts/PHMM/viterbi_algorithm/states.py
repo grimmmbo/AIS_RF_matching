@@ -114,8 +114,8 @@ class AISState(State):
         
         # test
         base_prob = normalize(transitions, self.name)
-        square_root = base_prob ** 0.5
-        return square_root
+        exponent = 2
+        return base_prob ** exponent
 
     def Δ(self):
         return (1, 0)
@@ -148,7 +148,7 @@ class RFState(State):
         
         # test
         base_prob = normalize(transitions, self.name)
-        exponent = 2
+        exponent = 0.5
         return base_prob ** exponent
             
     def Δ(self):
@@ -183,7 +183,7 @@ class MState(State):
         
         # test
         base_prob = normalize(transitions, self.name)
-        exponent = 2
+        exponent = 0.5
         return base_prob ** exponent
 
     def Δ(self):

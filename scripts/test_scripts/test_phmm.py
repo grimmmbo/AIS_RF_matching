@@ -9,9 +9,9 @@ import math
 from scripts.PHMM.viterbi_algorithm.states import *
 from scripts.PHMM.viterbi_algorithm.forward import *
 
-def compute_alignments(RF_signal, distance_threshold, metadata, alpha=1.5):
+def compute_forward_scores(RF_data, AIS_data, RF_signal_id, RF_track_id, AIS_track_id, alpha=0.9):
     """
-    Compute the forward alignment score between a single RF signal and multiple AIS sequences
+    Compute the forward score between a single RF signal and multiple AIS sequences
 
     Args:
         RF_signal (pd.Series): A single RF observation
@@ -25,85 +25,25 @@ def compute_alignments(RF_signal, distance_threshold, metadata, alpha=1.5):
     states = [ BeginState(), AISState(), RFState(), MState(), EndState()]
     forward_model = PHMM_forward(states, EndState())
 
-    # Extract RF information
-    RF_datetime = RF_signal["RF_Timestamp"]
-    RF_coordinates = RF_signal["RF"]
-    RF_track_id = RF_signal["ID"]
-    RF_signal_id = RF_signal["RF_signal_id"]
-                
-    results = []
+    # RF_data = df_RF[(df_RF["RF_signal_id"] == RF_signal_id) & (df_RF["ID"] == RF_track_id)]
+    RF_datetime = RF_data["RF_Timestamp"].values[0]
+    RF_coordinates = RF_data["RF"].values[0]
+    
+    # AIS_data = df_train[df_train["ID"] == AIS_track_id]
+    
+    AIS_seq = [
+        (dt, coord) for dt, coord in zip(AIS_data["AIS_Timestamp"], AIS_data["AIS"])
+        if pd.notna(dt) and coord is not None]
+    RF_seq = [(RF_datetime, RF_coordinates)]
+        
+    # Calculate forward score
+    forward_score = forward_model.forward(AIS_seq, RF_seq)
+    adjusted_score = forward_score / len(AIS_seq)
+    adjusted_score_alpha = forward_score / (len(AIS_seq)**alpha)
+    
+    is_true_match = RF_track_id == AIS_track_id
 
-    for AIS_track_id, meta in metadata.items():
-        # Check whether the is a true match (same track ids) --> always evaluate the true match
-        if AIS_track_id == RF_track_id:
-            AIS_data = meta["data"]
-            
-            # Make sequences
-            AIS_seq = [
-                (dt, coord) for dt, coord in zip(AIS_data["AIS_Timestamp"], AIS_data["AIS"])
-                if pd.notna(dt) and coord is not None
-            ]
-            RF_seq = [(RF_datetime, RF_coordinates)]
-            
-            # Calculate forward score
-            forward_score = forward_model.forward(AIS_seq, RF_seq)
-            adjusted_score = forward_score / len(AIS_seq)
-            adjusted_score_alpha = forward_score / (len(AIS_seq) * alpha)
-            
-            is_true_match = RF_track_id == AIS_track_id
-
-            # Save results
-            results.append({
-                "RF_signal_id": RF_signal_id,
-                "RF_track_id": RF_track_id,
-                "AIS_track_id": AIS_track_id,
-                "forward_score": forward_score,
-                "normalized_forward_score": adjusted_score,
-                "normalized_forward_score_alpha": adjusted_score_alpha,
-                "is_true_match": is_true_match
-            })
-            
-            continue
-        
-        # Step 1: Checks whether the timestamp of RF signal falls within the time range of the AIS track, with a small margin (defaults to 10 minutes) added before and after
-        if not (meta["min_time"] <= RF_datetime <= meta["max_time"]):
-            continue
-        
-        # Step 2, rough proximity check: 
-        # Checks whether the location of the RF signal is within a bounding box (with a small margin of 2.23 km) that surrounds the AIS track 
-        if not (meta["min_lat"] <= RF_coordinates[0] <= meta["max_lat"] and
-                meta["min_lon"] <= RF_coordinates[1] <= meta["max_lon"]):
-            continue
-
-        # Step 3, more detailed check: 
-        # Only if the RF point passes both checks, the precise haversine distance is computed to determine whether it is within the allowed range (2,23 km) of any AIS point in the sequence
-        in_range = False
-        for coord in meta["coords"]:
-            if haversine(RF_coordinates, coord) <= distance_threshold:
-                in_range = True
-                break
-        if not in_range:
-            continue
-        
-        # Make sequences
-        AIS_data = meta["data"]
-        AIS_seq = [
-            (dt, coord) for dt, coord in zip(AIS_data["AIS_Timestamp"], AIS_data["AIS"])
-            if pd.notna(dt) and coord is not None
-        ]
-        if not AIS_seq:
-            continue
-        RF_seq = [(RF_datetime, RF_coordinates)]
-        
-        # Calculate forward score
-        forward_score = forward_model.forward(AIS_seq, RF_seq)
-        adjusted_score = forward_score / len(AIS_seq)
-        adjusted_score_alpha = forward_score / (len(AIS_seq) * alpha)
-        
-        is_true_match = RF_track_id == AIS_track_id
-
-        # Save results
-        results.append({
+    return {
             "RF_signal_id": RF_signal_id,
             "RF_track_id": RF_track_id,
             "AIS_track_id": AIS_track_id,
@@ -111,56 +51,9 @@ def compute_alignments(RF_signal, distance_threshold, metadata, alpha=1.5):
             "normalized_forward_score": adjusted_score,
             "normalized_forward_score_alpha": adjusted_score_alpha,
             "is_true_match": is_true_match
-        })
-
-    return results
-
-def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
-    """
-    Precomputes metadata for each AIS track
-
-    Args:
-        df_grouped (pd.DataFrame): Grouped AIS data (data of one unique AIS track)
-        distance_threshold (float): Maximum distance (in kilometers) to consider an AIS point as a match candidate
-        time_marge (timedelta): Time added before and after AIS timestamps
-
-    Returns:
-        _type_: Metadata for each AIS track 
-    """
-    meta = {}
-    for track_id, group in df_grouped:
-        # Calculate the geographical bounding box for a single AIS track 
-        coords = [coord for coord in group["AIS"] if coord is not None]
-        if not coords:
-            continue
-        
-        lats = [c[0] for c in coords]
-        lons = [c[1] for c in coords]
-        
-        min_lat = min(lats)
-        max_lat = max(lats)
-        min_lon = min(lons)
-        max_lon = max(lons)
-        
-        # The bounding box is expanded by a small margin (based on the distance threshold in kilometers)
-        lat_margin = distance_threshold / 111
-        lon_margin_min = distance_threshold / (111 * math.cos(math.radians(min_lat)))
-        lon_margin_max = distance_threshold / (111 * math.cos(math.radians(max_lat)))
-
-        # Store all precomputed metadata
-        meta[track_id] = {
-            "data": group,
-            "coords": coords,
-            "min_lat": min_lat - lat_margin,
-            "max_lat": max_lat + lat_margin,
-            "min_lon": min_lon - lon_margin_min,
-            "max_lon": max_lon + lon_margin_max,
-            "min_time": group["AIS_Timestamp"].min() - time_marge,
-            "max_time": group["AIS_Timestamp"].max() + time_marge
         }
-    return meta
 
-def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.380675025323449, time_marge = timedelta(minutes = 10)):
+def compute_forward_score_parallel(df_train, df_preselection):
     """
     Matches RF signals to AIS tracks using forward algorithm, in parallel
 
@@ -172,22 +65,25 @@ def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.38067502532344
     Returns:
         pd.DataFrame: Alignment results with forward scores
     """
-    # Extract all RF observations
-    df_RF = df[df["RF"].notna()].copy()
-    df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1
-    RF_list = [RF_signal for _, RF_signal in df_RF.iterrows()]
-    
-    # Group AIS tracks by ID and precompute metadata
-    df_grouped = df.groupby("ID")
-    AIS_metadata = make_AIS_metadata(df_grouped, distance_threshold, time_marge)
     
     results = []
+    
+    df_RF = df_train[df_train["RF"].notna()].copy()
+    df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1 
+    
+    
+    # In main thread, bouw tuples per taak met alleen de benodigde data
+    tasks = []
+    for row in tqdm(df_preselection.itertuples(index=False), total=len(df_preselection), desc="Building task list"):
+        RF_data = df_RF[(df_RF["RF_signal_id"] == row.RF_signal_id) & (df_RF["ID"] == row.RF_track_id)]
+        AIS_data = df_train[df_train["ID"] == row.AIS_track_id]
+        tasks.append((RF_data, AIS_data, row.RF_signal_id, row.RF_track_id, row.AIS_track_id))
     
     # Run alignment in parallel using all cores
     with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [
-            executor.submit(compute_alignments, RF_signal, distance_threshold, AIS_metadata) 
-            for RF_signal in RF_list
+            executor.submit(compute_forward_scores, RF_data, AIS_data, RF_signal_id, RF_track_id, AIS_track_id)
+            for (RF_data, AIS_data, RF_signal_id, RF_track_id, AIS_track_id) in tasks
         ]
         
         for future in tqdm(as_completed(futures), total=len(futures), desc="Aligning RF signals to AIS sequences"):
@@ -198,19 +94,21 @@ def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.38067502532344
                 print(f"Error during processing {e}")
                 sys.stdout.flush()
                 
-    # Flatten the list of results        
-    flatten_results = [item for sublist in results for item in sublist]
+    # # Flatten the list of results        
+    # flatten_results = [item for sublist in results for item in sublist]
     
-    return pd.DataFrame(flatten_results)
+    return pd.DataFrame(results)
                     
 if __name__ == "__main__":
-    print("Aligning AIS and RF data...")
+    print("Calculating the Forward score for AIS and RF data...")
 
-    SOURCE_PATH = "../test_scripts/train_data_sample_5000.pkl"
-    DESTINATION_PATH = "../test_scripts/alignments_df.pkl"
+    SOURCE_PATH1 = "../test_scripts/train_data_sample_5000.pkl"
+    SOURCE_PATH2 = "../test_scripts/AIS_RF_preselection_df.pkl"
+    DESTINATION_PATH = "../test_scripts/forward_scores_df.pkl"
     
-    df = pd.read_pickle(SOURCE_PATH)
-    alignments_df = compute_AIS_RF_alignments_parallel(df)
-    alignments_df.to_pickle(DESTINATION_PATH)
+    df_train = pd.read_pickle(SOURCE_PATH1)
+    df_preselection = pd.read_pickle(SOURCE_PATH2)
+    forward_score_df = compute_forward_score_parallel(df_train, df_preselection)
+    forward_score_df.to_pickle(DESTINATION_PATH)
     
     print("Data is saved to", DESTINATION_PATH)
