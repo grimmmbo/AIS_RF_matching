@@ -110,11 +110,8 @@ class AISState(State):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        # return normalize(transitions, self.name)
-        
-        # test
         base_prob = normalize(transitions, self.name)
-        exponent = 2
+        exponent = 0.5
         return base_prob ** exponent
 
     def Δ(self):
@@ -144,11 +141,8 @@ class RFState(State):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        # return normalize(transitions, self.name)
-        
-        # test
         base_prob = normalize(transitions, self.name)
-        exponent = 0.5
+        exponent = 2
         return base_prob ** exponent
             
     def Δ(self):
@@ -172,18 +166,15 @@ class MState(State):
 
     def emission(self, observation):
         AIS_obs, RF_obs = observation
-        return 1.0 if AIS_obs is not None and RF_obs is not None else 0.0
+        # return 1.0 if AIS_obs is not None and RF_obs is not None else 0.0
         return match_probability(*compute_abs_time_and_distance(AIS_obs, RF_obs))
 
     def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):
         if prev_state == "begin":
             return 1.0 / 3.0
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        # return normalize(transitions, self.name)
-        
-        # test
         base_prob = normalize(transitions, self.name)
-        exponent = 0.5
+        exponent = 2
         return base_prob ** exponent
 
     def Δ(self):

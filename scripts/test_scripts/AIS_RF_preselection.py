@@ -55,11 +55,13 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
 
         # Step 3, more detailed check: 
         # Only if the RF point passes both checks, the precise haversine distance is computed to determine whether it is within the allowed range (2,23 km) of any AIS point in the sequence
+        time_window = timedelta(hours=3)  # aangepast
         in_range = False
-        for coord in meta["coords"]:
-            if haversine(RF_coordinates, coord) <= distance_threshold:
-                in_range = True
-                break
+        for time, coord in zip(meta["times"],meta["coords"]): # aangepast
+            if abs(time - RF_datetime) <= time_window:  #aangepast
+                if haversine(RF_coordinates, coord) <= distance_threshold:
+                    in_range = True
+                    break
         if not in_range:
             continue
         
@@ -94,6 +96,11 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         if not coords:
             continue
         
+        # aangepast
+        times = [time for time in group["AIS_Timestamp"] if not pd.isnull(time)]
+        if not times:
+            continue
+        
         lats = [c[0] for c in coords]
         lons = [c[1] for c in coords]
         
@@ -111,6 +118,7 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         meta[track_id] = {
             "data": group,
             "coords": coords,
+            "times": times, # aangepast
             "min_lat": min_lat - lat_margin,
             "max_lat": max_lat + lat_margin,
             "min_lon": min_lon - lon_margin_min,
@@ -120,7 +128,7 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         }
     return meta
 
-def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.380675025323449, time_marge = timedelta(minutes = 10)):
+def compute_AIS_RF_alignments_parallel(df, distance_threshold = 6, time_marge = timedelta(minutes = 10)): #aangepast van 2.380675025323449 naar 6
     """
     Matches RF signals to AIS tracks in parallel
 
@@ -156,7 +164,6 @@ def compute_AIS_RF_alignments_parallel(df, distance_threshold = 2.38067502532344
                 results.append(result)
             except Exception as e:
                 print(f"Error during processing {e}")
-                sys.stdout.flush()
                 
     # Flatten the list of results        
     flatten_results = [item for sublist in results for item in sublist]
@@ -167,7 +174,7 @@ if __name__ == "__main__":
     print("Aligning AIS and RF data...")
 
     SOURCE_PATH = "../test_scripts/train_data_sample_5000.pkl"
-    DESTINATION_PATH = "../test_scripts/AIS_RF_preselection_df.pkl"
+    DESTINATION_PATH = "../test_scripts/AIS_RF_preselection_df_time_window_6km.pkl"
     
     df = pd.read_pickle(SOURCE_PATH)
     alignments_df = compute_AIS_RF_alignments_parallel(df)
