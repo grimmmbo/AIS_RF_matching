@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KernelDensity
+from scripts.PHMM.distributions.AIS_RF_distribution import AIS_RF_probability
 
 def compute_track_characteristics(df):
     """
@@ -32,9 +33,54 @@ def compute_track_characteristics(df):
         
         # Compute the average time between consecutive AIS points (in seconds)
         mean_intra_time_diff = (
-            timestamps.diff().dropna().dt.total_seconds().mean() if len(timestamps) > 1 else None
+            vessel_data['time_diff'].mean()
+        )
+        
+        std_intra_time_diff = (
+            vessel_data['time_diff'].std()
+        )
+        
+        mean_intra_dist_diff = (
+            vessel_data['distance_diff'].mean()
+        )
+        
+        std_intra_dist_diff = (
+            vessel_data['distance_diff'].std()
+        )
+        
+        
+        trans_probs = vessel_data.apply(
+                lambda row: AIS_RF_probability(row['time_diff'], row['distance_diff']),
+                axis=1
+            )
+        mean_transition_strength = (
+            trans_probs.mean()
         )
 
+        std_transition_strength = (
+            trans_probs.std()
+        )
+        
+        trans_probs_corrected = np.array([prob**0.5 for prob in trans_probs])
+        
+        mean_transition_strength_corr = (
+            trans_probs_corrected.mean()
+        )
+
+        std_transition_strength_corr = (
+            trans_probs_corrected.std()
+        )
+        
+        trans_probs_log = np.array([np.log(prob) for prob in trans_probs_corrected])
+        
+        mean_transition_strength_log = (
+            trans_probs_log.mean()
+        )
+
+        std_transition_strength_log = (
+            trans_probs_log.std()
+        )
+        
         # Append all computed metrics to the list
         track_summary.append({
             "ID": id, 
@@ -44,6 +90,15 @@ def compute_track_characteristics(df):
             "lat_span": lat_span,
             "lon_span": lon_span,
             "mean_intra_time_diff": mean_intra_time_diff,
+            "std_intra_time_diff" : std_intra_time_diff,
+            "mean_intra_dist_diff" : mean_intra_dist_diff,
+            "std_intra_dist_diff" : std_intra_dist_diff,
+            "mean_transition_strength" : mean_transition_strength,
+            "std_transition_strength" : std_transition_strength,
+            "mean_transition_strength_corr" : mean_transition_strength_corr,
+            "std_transition_strength_corr" : std_transition_strength_corr,
+            "mean_transition_strength_log":mean_transition_strength_log,
+            "std_transition_strength_log" :std_transition_strength_log
         })
 
     return pd.DataFrame(track_summary)

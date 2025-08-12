@@ -1,8 +1,9 @@
-import pandas as pd
+
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
+import pandas as pd
 
 from scripts.PHMM.viterbi_algorithm.states import *
 from scripts.PHMM.viterbi_algorithm.forward import *
@@ -46,7 +47,7 @@ def compute_forward_score_parallel(df_train, df_preselection):
     print("Preparing alignment tasks...")
     start_prep = time.time()
 
-    # ✨ Maak snelle lookup dictionaries
+    # Maak snelle lookup dictionaries
     ais_dict = {track_id: group for track_id, group in df_train.groupby("ID")}
     rf_dict = {(row["ID"], row["RF_signal_id"]): row for _, row in df_RF.iterrows()}
 
@@ -103,8 +104,8 @@ if __name__ == "__main__":
     print("Aligning AIS and RF data...")
 
     SOURCE_PATH1 = "../test_scripts/train_data_sample_5000.pkl"
-    SOURCE_PATH2 = "../test_scripts/AIS_RF_preselection_df.pkl"
-    DESTINATION_PATH = "../test_scripts/forward_scores_origineel_df.pkl"
+    SOURCE_PATH2 = "../test_scripts/AIS_RF_preselection_df_time_window_6km.pkl"
+    DESTINATION_PATH = "../test_scripts/forward_scores_new_preselection_df.pkl"
 
     df_train = pd.read_pickle(SOURCE_PATH1)
     df_preselection = pd.read_pickle(SOURCE_PATH2)

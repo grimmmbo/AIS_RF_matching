@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import os
 import math
+import numpy as np
 
 def compute_alignments(RF_signal, distance_threshold, metadata):
     """
@@ -55,15 +56,38 @@ def compute_alignments(RF_signal, distance_threshold, metadata):
 
         # Step 3, more detailed check: 
         # Only if the RF point passes both checks, the precise haversine distance is computed to determine whether it is within the allowed range (2,23 km) of any AIS point in the sequence
-        time_window = timedelta(hours=3)  # aangepast
-        in_range = False
-        for time, coord in zip(meta["times"],meta["coords"]): # aangepast
-            if abs(time - RF_datetime) <= time_window:  #aangepast
-                if haversine(RF_coordinates, coord) <= distance_threshold:
-                    in_range = True
-                    break
+        
+        #### aangepast
+        times_np = np.array(meta["times"], dtype='datetime64[ns]')
+        coords_np = np.array(meta["coords"])
+
+        # Zet RF_datetime ook om naar numpy datetime64
+        RF_time_np = np.datetime64(RF_datetime)
+
+        # Filter op tijdswindow (NumPy timedelta werkt hier netjes)
+        time_window_np = np.timedelta64(3, 'h')  # 3 uur window
+
+        # Boolean mask van de tijdsfilter
+        mask = np.abs(times_np - RF_time_np) <= time_window_np
+
+        # Selecteer alleen de coördinaten die in het tijdswindow vallen
+        filtered_coords = coords_np[mask]
+        
+        in_range = any(haversine(RF_coordinates, coord) <= distance_threshold for coord in filtered_coords)
         if not in_range:
             continue
+      
+        ####################
+        
+        # time_window = timedelta(hours=3)  # aangepast
+        # in_range = False
+        # for time, coord in zip(meta["times"],meta["coords"]): # aangepast
+        #     if abs(time - RF_datetime) <= time_window:  #aangepast
+        #         if haversine(RF_coordinates, coord) <= distance_threshold:
+        #             in_range = True
+        #             break
+        # if not in_range:
+        #     continue
         
         is_true_match = RF_track_id == AIS_track_id
 
@@ -116,7 +140,7 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
 
         # Store all precomputed metadata
         meta[track_id] = {
-            "data": group,
+            # "data": group,
             "coords": coords,
             "times": times, # aangepast
             "min_lat": min_lat - lat_margin,

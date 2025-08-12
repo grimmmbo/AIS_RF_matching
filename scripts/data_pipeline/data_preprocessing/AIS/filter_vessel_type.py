@@ -20,6 +20,7 @@ def filter_on_vessel_type(data_path, json_path, save_path, vessel_name = "Cargo"
     df["BaseDateTime"] = pd.to_datetime(df["BaseDateTime"])
     
     # Filter the AIS data to keep only rows with chosen vessel types
+    # https://documentation.spire.com/ais-fundamentals/ship-type-mappings/
     with open(json_path, "r") as file:
         vessel_type_names = json.load(file)
     
