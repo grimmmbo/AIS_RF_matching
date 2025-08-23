@@ -6,7 +6,7 @@
 
 ## Objective
 
-Maritime transport carries ~90% of global trade but faces congestion, safety risks, and illicit activities. Authorities rely on AIS for vessel tracking, yet AIS suffers from coverage gaps and manipulation vulnerabilities. Space-based RF detections offer a promising complementary source, but methods to fuse AIS and RF are underdeveloped. This project explores a Pair Hidden Markov Model (PHMM) as a proof of concept to link AIS with RF detections and improve vessel identification under normal operating conditions.
+Maritime transport carries around 90% of global trade but faces congestion, safety risks, and illicit activities. Authorities rely on Automatic Identification System (AIS) for vessel tracking, yet AIS suffers from coverage gaps and manipulation vulnerabilities. Space-based radio frequency (RF) detections offer a promising complementary source, but methods to fuse AIS and RF are underdeveloped. This project explores a Pair Hidden Markov Model (PHMM) as a proof of concept to link AIS with RF detections and improve vessel identification under normal operating conditions.
 
 ## Repository structure
 
@@ -80,8 +80,8 @@ $ uv version
 ### Step 2 — Clone this repository
 
 ```bash
-git clone https://github.com/Cayah99/AIS_RF_matching_PHMM.git
-cd AIS_RF_matching_PHMM
+git clone https://github.com/Cayah99/AIS_RF_matching.git
+cd AIS_RF_matching
 ```
 
 ### Step 3 — Create & sync the environment
@@ -97,25 +97,31 @@ uv sync --frozen
 source .venv/bin/activate
 
 # On Windows.
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\activate.bat
 ```
 
 ### Step 5 — Reproduce the datasets
 
 ```bash
 # Make data folders 
-mkdir -p data/raw
-mkdir -p data/processed
+
+# On macOS and Linux.
+mkdir data/raw
+mkdir data/processed
+
+# On Windows.
+mkdir data\raw
+mkdir data\processed
 
 # 1) Download AIS data 
 # Source: NOAA’s Marine Cadastre (https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html)
 # Run:
-    uv run python scripts/download_AIS_data.py
+    uv run python scripts/data_loading/download_AIS_data.py
 # Output: data/raw/AIS_01_2024.pkl
 
 # 2) Filter op cargotypes
 # Run:  
-    uv run python scripts/prefilter_vessel_type.py
+    uv run python scripts/data_preprocessing/AIS/pre_filter_vessel_type.py
 # Output: data/processed/cargo_vessels.parquet
 
 # 3) Preprocess data
@@ -128,12 +134,12 @@ mkdir -p data/processed
 
 # 4) Preselect AIS–RF candidates 
 # Run: 
-    uv run python scripts/AIS_RF_preselection.py
+    uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
 # Output: data/processed/AIS_RF_preselection_data.pkl
 
 # 4) Forward alignment scores (PHMM) 
 # Run: 
-    uv run python scripts/AIS_RF_forward_alignment.py
+    uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_forward_alignment.py
 # Output: data/processed/AIS_RF_forward_scores_data.pkl
 ```
 
