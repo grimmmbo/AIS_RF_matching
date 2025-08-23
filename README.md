@@ -77,13 +77,20 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 $ uv version
 ```
 
-### Step 2 — Create & sync the environment
+### Step 2 — Clone this repository
+
+```bash
+git clone https://github.com/Cayah99/AIS_RF_matching_PHMM.git
+cd AIS_RF_matching_PHMM
+```
+
+### Step 3 — Create & sync the environment
 
 ```bash
 uv sync --frozen
 ```
 
-### Step 3 — (optional) Activate the virtualenv
+### Step 4 — (optional) Activate the virtualenv
 
 ```bash
 # On macOS and Linux.
@@ -93,7 +100,7 @@ source .venv/bin/activate
 .\.venv\Scripts\Activate.ps1
 ```
 
-### Step 4 — Reproduce the datasets
+### Step 5 — Reproduce the datasets
 
 ```bash
 # Make data folders 
