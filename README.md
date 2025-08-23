@@ -1,5 +1,5 @@
-# Pairing AIS with RF: A Markovian Approach for Maritime Data Fusion
-
+# Pairing AIS with RF:  
+# A Markovian Approach for Maritime Data Fusion
 
 **Author:** Kyra Jongman  
 **Program:** MSc Data Science in Business and Entrepreneurship  
