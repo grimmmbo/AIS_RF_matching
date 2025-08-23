@@ -133,9 +133,9 @@ mkdir data\raw
     # 3. data/processed/train_data_sample_5000.pkl
 
 # 4) Preselect AIS–RF candidates 
-# NOTE: Running this step on the full dataset used in this study is computationally intensive and takes ~10 hours 
-# A precomputed result is included in the repo for convenience
-# To recompute everything anyway, run:
+# NOTE: On the full study dataset, this step is compute-intensive (~10 hours).
+# A precomputed result is included in the repo.
+# To regenerate it yourself, run:
     uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
 # Output: data/processed/AIS_RF_preselection_data.pkl
 
