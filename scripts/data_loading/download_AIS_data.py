@@ -43,7 +43,7 @@ def download_AIS_data(start_date, end_date, url, output_file):
     df = pd.concat(all_data, ignore_index=True)
     
     # Save Dataframe
-    df.to_parquet(output_file)
+    df.to_pickle(output_file)
     print(f"Data saved to {output_file}")
     
 if __name__ == "__main__":
