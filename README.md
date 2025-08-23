@@ -113,7 +113,7 @@ mkdir data/processed
 mkdir data\raw
 mkdir data\processed
 
-# 1) Download AIS data 
+# 1) Download AIS data  (~15 minutes, depending on connection and CPU)
 # Source: NOAA’s Marine Cadastre (https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html)
 # Run:
     uv run python scripts/data_loading/download_AIS_data.py
@@ -126,7 +126,7 @@ mkdir data\processed
 
 # 3) Preprocess data
 # Run full '02_data_preparation.ipynb' notebook
-    jupyter notebook notebooks/02_data_preparation.ipynb
+    uv run python -m notebook notebooks/02_data_preparation.ipynb
 # Output: 
     # 1. data/processed/AIS_sample_no_RF_5000.pkl
     # 2. data/processed/statistics_sample_5000.pkl
