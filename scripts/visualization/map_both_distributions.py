@@ -1,17 +1,19 @@
 import numpy as np
 import plotly.graph_objects as go
-
-from scripts.PHMM.distributions.AIS_RF_distribution import * 
-from scripts.PHMM.distributions.match_distribution import * 
+from scripts.modeling.transition_probabilities.AIS_RF_distribution import *
+from scripts.modeling.transition_probabilities.match_distribution import *
 
 def plot_combined_probability_surfaces():
     """
-    Visualizes the combined probability surface
+    Visualize overlaid AIS–RF probability surfaces: match vs. transition.
+    The surface is computed via (1) match_probability(time_sec, distance_km) and (2) AIS_RF_probability(time_sec, distance_km)
     """
+    # Define time (0–120 s) and distance (0–2 km) grid
     x_vals = np.linspace(0, 120, 100)
     y_vals = np.linspace(0, 2.0, 100)
     X, Y = np.meshgrid(x_vals, y_vals)
 
+    # Compute probability surface on grid (both match and transition)
     Z_match = np.vectorize(match_probability)(X, Y)
     Z_transition = np.vectorize(AIS_RF_probability)(X, Y)
 

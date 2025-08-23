@@ -1,25 +1,26 @@
-from scripts.PHMM.distributions.AIS_RF_distribution import * 
-
 import numpy as np
 import plotly.graph_objects as go
+from scripts.modeling.transition_probabilities.AIS_RF_distribution import *
 
 def plot_AIS_RF_distribution():
     """
-    Plots a transition probability surface over time and distance using a specified transition probability function.
+    Visualize the AIS–RF transition probability surface over time and distance
+    Computes the probability surface via AIS_RF_probability(time_sec, distance_km)
     """
-
+    # Define time (0–551 s, using 551 as the trajectory split threshold) and distance (0–7 km) grid
     x_vals = np.linspace(0, 551, 50)
     y_vals = np.linspace(0, 7, 50)
     X, Y = np.meshgrid(x_vals, y_vals)
+    
+    # Compute probability surface on grid
     Z = np.vectorize(AIS_RF_probability)(X, Y)
 
     colors = ["#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
     plotly_colorscale = [[i / (len(colors) - 1), c] for i, c in enumerate(colors)]
     
+    # Create 3D surface plot
     fig = go.Figure()
-
     fig.add_trace(go.Surface(z=Z, x=X, y=Y, colorscale=plotly_colorscale, showscale=True))
-
     fig.update_layout(
         title="Transition Probability Surface",
         scene=dict(
@@ -36,11 +37,14 @@ def plot_AIS_RF_distribution():
     
 def plot_extreme_AIS_RF_distribution():
     """
-    Visualizes the match probability surface with only extreme values ((0,0), (2,0), (120, 0), (2, 120)) shown as reference points
+    Visualize the AIS–RF transition probability surface and annotate extreme points ((0,0), (551,0), (0, 7), (551, 7))
     """
+    # Define time (0–551 s) and distance (0–7 km) grid
     x_vals = np.linspace(0, 551, 50)
     y_vals = np.linspace(0, 7, 50)
     X, Y = np.meshgrid(x_vals, y_vals)
+    
+    # Compute probability surface
     Z = np.vectorize(AIS_RF_probability)(X, Y)
 
     colors = ["#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
@@ -48,16 +52,10 @@ def plot_extreme_AIS_RF_distribution():
     plotly_colorscale = [[i / (len(colors) - 1), c] for i, c in enumerate(colors)]
     
     # Define extreme points
-    extreme_points = [
-        (0,0),
-        (551,0),
-        (0,7),
-        (551,7)
-    ]
+    extreme_points = [(0,0),(551,0),(0,7),(551,7)]
     
     # Plot surface 
     fig = go.Figure()
-
     fig.add_trace(go.Surface(z=Z, x=X, y=Y, colorscale=plotly_colorscale, showscale=True))
     
     for (sec_extreme, dist_extreme), label in zip(extreme_points, labels):
