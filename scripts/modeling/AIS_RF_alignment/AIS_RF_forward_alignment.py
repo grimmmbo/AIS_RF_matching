@@ -131,9 +131,9 @@ if __name__ == "__main__":
     
     start_time = datetime.now()
 
-    SOURCE_PATH1 = "./AIS_RF_matching/data/processed/train_data_sample_5000.pkl"
-    SOURCE_PATH2 = "./AIS_RF_matching/data/processed/AIS_RF_preselection_data.pkl" 
-    DESTINATION_PATH = "./AIS_RF_matching/data/processed/AIS_RF_forward_scores_data.pkl" 
+    SOURCE_PATH1 = "./data/processed/train_data_sample_5000.pkl"
+    SOURCE_PATH2 = "./data/processed/AIS_RF_preselection_data.pkl" 
+    DESTINATION_PATH = "./data/processed/AIS_RF_forward_scores_data.pkl" 
 
     df_train = pd.read_pickle(SOURCE_PATH1)
     df_preselection = pd.read_pickle(SOURCE_PATH2)

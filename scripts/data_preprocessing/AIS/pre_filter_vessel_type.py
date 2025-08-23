@@ -36,9 +36,9 @@ if __name__ == "__main__":
     
     vessel_name = "Cargo"
     
-    SOURCE_DATA_PATH = "../../AIS_RF_matching/data/raw/AIS_01_2024.pkl"
-    SOURCE_JSON_PATH = "../../AIS_RF_matching/config/mappings/vessel_type_names.json"
-    DESTINATION_PATH = f"../../AIS_RF_matching/data/processed/{vessel_name.lower()}_vessels.parquet"
+    SOURCE_DATA_PATH = "./data/raw/AIS_01_2024.pkl"
+    SOURCE_JSON_PATH = "./config/mappings/vessel_type_names.json"
+    DESTINATION_PATH = f"./data/processed/{vessel_name.lower()}_vessels.parquet"
 
     filter_on_vessel_type(SOURCE_DATA_PATH, SOURCE_JSON_PATH, DESTINATION_PATH, vessel_name)
     

@@ -192,8 +192,8 @@ if __name__ == "__main__":
 
     start_time = datetime.now()
     
-    SOURCE_PATH = "./AIS_RF_matching/data/processed/train_data_sample_5000.pkl" 
-    DESTINATION_PATH = "./AIS_RF_matching/data/processed/AIS_RF_preselection_data.pkl"
+    SOURCE_PATH = "./data/processed/train_data_sample_5000.pkl" 
+    DESTINATION_PATH = "./data/processed/AIS_RF_preselection_data.pkl"
     
     df = pd.read_pickle(SOURCE_PATH)
     alignments_df, avg_time_per_iter = compute_AIS_RF_alignments_parallel(df)
