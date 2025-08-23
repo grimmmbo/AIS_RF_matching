@@ -1,5 +1,5 @@
 # Pairing AIS with RF:  
-# A Markovian Approach for Maritime Data Fusion
+*A Markovian Approach for Maritime Data Fusion
 
 **Author:** Kyra Jongman  
 **Program:** MSc Data Science in Business and Entrepreneurship  
@@ -7,7 +7,7 @@
 
 ## Objective
 
-Maritime transport carries ~90% of global trade but faces congestion, safety risks, and illicit activities. Authorities rely on AIS for vessel tracking, yet AIS suffers from coverage gaps and manipulation vulnerabilities. Space-based RF detections offer a promising complementary source, but methods to fuse AIS and RF are underdeveloped. This project explores a Pair Hidden Markov Model (PHMM) as a proof of concept to link AIS with RF detections and improve vessel identification under normal operating conditions
+Maritime transport carries ~90% of global trade but faces congestion, safety risks, and illicit activities. Authorities rely on AIS for vessel tracking, yet AIS suffers from coverage gaps and manipulation vulnerabilities. Space-based RF detections offer a promising complementary source, but methods to fuse AIS and RF are underdeveloped. This project explores a Pair Hidden Markov Model (PHMM) as a proof of concept to link AIS with RF detections and improve vessel identification under normal operating conditions.
 
 ## Repository structure
 
