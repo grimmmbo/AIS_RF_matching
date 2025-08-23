@@ -13,7 +13,9 @@ Maritime transport carries around 90% of global trade but faces congestion, safe
 ```bash
 AIS_RF_matching_PHMM/
 ├─ config/
-│  └─ mappings/vessel_type_names.json                     
+│  └─ mappings/vessel_type_names.json 
+├─ data/
+│  └─ processed/AIS_RF_preselection_data.pkl                    
 ├─ notebooks/
 │  ├─ 01_data_understanding.ipynb      
 │  ├─ 02_data_preparation.ipynb             
@@ -103,15 +105,13 @@ source .venv/bin/activate
 ### Step 5 — Reproduce the datasets
 
 ```bash
-# Make data folders 
+# Make data folder 
 
 # On macOS and Linux.
 mkdir data/raw
-mkdir data/processed
 
 # On Windows.
 mkdir data\raw
-mkdir data\processed
 
 # 1) Download AIS data  (~15 minutes, depending on connection and CPU)
 # Source: NOAA’s Marine Cadastre (https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html)
@@ -133,7 +133,9 @@ mkdir data\processed
     # 3. data/processed/train_data_sample_5000.pkl
 
 # 4) Preselect AIS–RF candidates 
-# Run: 
+# NOTE: Running this step on the full dataset used in this study is computationally intensive and takes ~10 hours 
+# A precomputed result is included in the repo for convenience
+# To recompute everything anyway, run:
     uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
 # Output: data/processed/AIS_RF_preselection_data.pkl
 

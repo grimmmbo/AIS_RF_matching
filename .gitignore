@@ -1,11 +1,10 @@
-# Dataset folders
-data/
-images/
-
 # macOS
 .DS_Store
 
+# Ignore all pickles, except one
 *.pkl
+*.parquet
+!data/processed/AIS_RF_preselection_data.pkl
 
 # Python cache 
 __pycache__/
