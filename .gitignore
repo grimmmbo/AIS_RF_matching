@@ -5,6 +5,15 @@ images/
 # macOS
 .DS_Store
 
+# dit kan later weg
+scripts/test_scripts/sample_set_5000.pkl
+scripts/test_scripts/train_set.pkl
+notebooks/test_notebooks/PHMM_df.pkl
+train_data_sample_5000.pkl
+train_data_5000_samples.pkl
+
+*.pkl
+
 # Python cache 
 __pycache__/
 *.pyc

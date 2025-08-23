@@ -3,210 +3,208 @@ from folium import CustomIcon
 import matplotlib.colors as mcolors
 import random 
 
-def compare_vessel_tracks_on_map(normal_AIS_data, modified_AIS_data, RF_data, MMSI_to_filter): 
+def plot_coverage_area():
     """
-    Creates an interactive map showing comparison of a vessel's routes based on mutliple datasets
+    Creates an interactive map showing the coverage area of the AIS data
+    """
+    # Define bounding box coordinates of NOAA's dataset
+    # (longitude and latitude limits of the AIS coverage area)
+    min_longitude = -219
+    max_longitude = -60
+    min_latitude = 11
+    max_latitude = 51.5
+
+    coverage_area_map = folium.Map(
+        location =[
+            (min_latitude + max_latitude)/2, 
+            (min_longitude + max_longitude)/2
+        ],
+        zoom_start = 2,
+        tiles = "CartoDB Positron"
+    )
+
+    folium.Rectangle(
+        bounds = [
+            [min_latitude, min_longitude], 
+            [max_latitude, max_longitude]
+        ],
+        color = "#e14a5b",
+        weight = 1,
+        fill = True,
+        fill_opacity = 0.2,
+        popup = 'Shifted Bounding Box'
+    ).add_to(coverage_area_map)
+
+    return coverage_area_map
+
+def plot_AIS_route(AIS_df, MMSI_to_filter_on): 
+    """
+    Creates an interactive map showing a vessel's route
       
     Args:
-        normal_AIS_data (pd.DataFrame): Normal AIS data
-        modified_AIS_data (pd.DataFrame): Modified AIS data
-        RF_data (pd.DataFrame): RF data 
-        MMSI_to_filter (int): MMSI of the vessel to filter data by
+        AIS_df (pd.DataFrame): AIS data
+        MMSI_to_filter_on (int): MMSI of the vessel to filter data by
     
     Returns:
         folium.Map: Folium interactive map 
     """
-    # Filter datasets by target MMSI
-    normal_AIS_data_filtered = normal_AIS_data[normal_AIS_data["MMSI"] == MMSI_to_filter]
-    modified_AIS_data_filtered = modified_AIS_data[modified_AIS_data["MMSI"] == MMSI_to_filter]
-    RF_data_filtered = RF_data[RF_data["MMSI"] == MMSI_to_filter]
+    # Filter datasets by target MMSI (single)
+    AIS_filtered = AIS_df[AIS_df["MMSI"] == MMSI_to_filter_on]
+    
+    if AIS_filtered.empty:
+        raise ValueError("No data found for the specified MMSI")
 
-    # Initialize the interactive map
-    latitude_of_center = (
-        normal_AIS_data_filtered["LAT"].mean() + 
-        modified_AIS_data_filtered["LAT"].mean() + 
-        RF_data_filtered["RF_LAT"].mean()
-    ) / 3
-    
-    longitude_of_center = (
-        normal_AIS_data_filtered["LON"].mean() + 
-        modified_AIS_data_filtered["LON"].mean() + 
-        RF_data_filtered["RF_LON"].mean()
-    ) / 3
-    
-    map = folium.Map(location=[latitude_of_center, longitude_of_center], zoom_start=7, tiles="CartoDB Positron")
-    
-    # Initialize the colors of the interactive map
-    colors = {
-        0: {"color": "#ff5c5c"},
-        1: {"color": "#c31e24"},
-        2: {"color": "#9dc6ce"},
-        3: {"color": "#117b88"}}
+    # Determine the map center as the average (lat, lon) of all points
+    map_center = [AIS_filtered["LAT"].mean(), AIS_filtered["LON"].mean()]
+    AIS_map = folium.Map(
+        location = map_center, 
+        zoom_start = 7, 
+        tiles="CartoDB Positron"
+    )
 
-    # 1. Plot 'normal' AIS data points 
-    normal_AIS_filter = folium.FeatureGroup(name="Normal AIS Tracks")
+    # Plot the AIS route as individual markers (arrows rotated to vessel heading)
+    for _, row in AIS_filtered.iterrows():
+        heading = (315 + row["Heading"]) 
+        color = "#e14a5b"
+        icon_html = f'''
+            <div style="font-size:12px; transform: rotate({heading}deg);">
+                <i class="fa-solid fa-location-arrow" style="color: {color};"></i>
+            </div>
+        '''
+        # Add the marker with a tooltip showing vessel info
+        folium.Marker(
+            location = (row['LAT'], row['LON']),
+            tooltip = (
+                f"AIS Point<br>MMSI: {MMSI_to_filter_on}<br>"
+                f"Lat: {row['LAT']:.5f}<br>Lon: {row['LON']:.5f}<br>"
+                f"On {row['BaseDateTime'].date()}, at {row['BaseDateTime'].time()}"
+            ),
+            icon = folium.DivIcon(html=icon_html),
+        ).add_to(AIS_map)
     
-    for (mmsi, track_id), group in normal_AIS_data_filtered.groupby(['MMSI', 'SubTrackID']):
-        color = colors[track_id]["color"]
+    return AIS_map
+    
+def plot_AIS_subroutes(AIS_df, MMSI_to_filter_on): 
+    """
+    Creates an interactive map showing a vessel's route after it was split into more continuous trajectories (subroutes), 
+    each rendered in a different color 
+      
+    Args:
+        AIS_df (pd.DataFrame): AIS data
+        MMSI_to_filter_on (int): MMSI of the vessel to filter data by
+    
+    Returns:
+        folium.Map: Folium interactive map 
+    """
+    # Filter the dataset on the target MMSI (single)
+    AIS_filtered = AIS_df[AIS_df["MMSI"] == MMSI_to_filter_on]
+    
+    if AIS_filtered.empty:
+        raise ValueError("No data found for the specified MMSI")
+
+    # Determine the map center as the average (lat, lon) of all points
+    map_center = [AIS_filtered["LAT"].mean(), AIS_filtered["LON"].mean()]
+    AIS_map = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB Positron")
+    
+    colors = ["#e0bbe4", "#d53e4f", "#f46d43", "#fee08b", "#feffb2"]
+    
+    # Plot the AIS route as individual markers (arrows rotated to vessel heading)
+    for i, (id, group) in enumerate(AIS_filtered.groupby(["ID"])):
+        AIS_filter = folium.FeatureGroup(name=f"AIS data points for {id}")
+        
+        # Color palette for subroutes
+        color = colors[i % len(colors)]
         
         for _, row in group.iterrows():
-            heading = 315 + row['Heading']
+            heading = (315 + row["Heading"]) 
             icon_html = f'''
                 <div style="font-size:12px; transform: rotate({heading}deg);">
                     <i class="fa-solid fa-location-arrow" style="color: {color};"></i>
                 </div>
-                '''
+            '''
+            # Add the marker with a tooltip showing vessel info
             folium.Marker(
-                location=(row['LAT'], row['LON']),
-                tooltip=f"Normal AIS data point<br>Belongs to vessel with MMSI: {mmsi}<br>Lat: {row['LAT']}<br>Lon: {row['LON']}<br>Subtrack ID: {track_id}<br>Timestamp: {row['BaseDateTime']}",
-                icon=folium.DivIcon(html=icon_html)
-            ).add_to(normal_AIS_filter)
+                location = (row['LAT'], row['LON']),
+                tooltip = (
+                    f"AIS Point<br>MMSI: {MMSI_to_filter_on}<br>"
+                    f"Lat: {row['LAT']:.5f}<br>Lon: {row['LON']:.5f}<br>"
+                    f"On {row['BaseDateTime'].date()}, at {row['BaseDateTime'].time()}"
+                ),
+                icon = folium.DivIcon(html=icon_html),
+            ).add_to(AIS_filter)
             
-    normal_AIS_filter.add_to(map)
-
-    # 2. Plot 'modified' AIS data points
-    modified_AIS_filter = folium.FeatureGroup(name="Manipulated AIS Tracks")
+        AIS_filter.add_to(AIS_map)
     
-    for (mmsi, track_id), group in modified_AIS_data_filtered.groupby(['MMSI', 'SubTrackID']):
-        color = colors[track_id]["color"]
-        
-        for _, row in group.iterrows():
-            heading = 315 + row['Heading']
-            icon_html = f'''
-                <div style="font-size:12px; transform: rotate({heading}deg);">
-                    <i class="fa-solid fa-location-arrow" style="color: {color};"></i>
-                </div>
-                '''
-            folium.Marker(
-                location=(row['LAT'], row['LON']),
-                icon=folium.DivIcon(html=icon_html),
-                tooltip=f"Modified AIS data point<br>Belongs to vessel with MMSI: {mmsi}<br>Lat: {row['LAT']}<br>Lon: {row['LON']}<br>Subtrack ID: {track_id}<br>Timestamp: {row['BaseDateTime']}"
-            ).add_to(modified_AIS_filter)
-            
-    modified_AIS_filter.add_to(map)
+    return AIS_map 
 
-    # 3. Simulated RF Signals
-    RF_filter = folium.FeatureGroup(name="Simulated RF Signals")
-    for (mmsi, timestamp), group in RF_data_filtered.groupby(['MMSI', 'TimeStamp_RF']):
-        
-        for _, row in group.iterrows():
-            custom_icon = CustomIcon(
-                icon_image="../images/star_image_yellow.png",
-                icon_size=(30, 30),
-                icon_anchor=(15, 15)
-            )
-            folium.Marker(
-                location=[row['RF_LAT'], row['RF_LON']],
-                icon=custom_icon,
-                tooltip=f"Simulated RF signal at {row['TimeStamp_RF']}<br>Belongs to the following AIS data:<br>Lat: {row['AIS_LAT']}<br>Lon: {row['AIS_LON']}<br>Subtrack ID: {row['SubTrackID']}"
-            ).add_to(RF_filter)
-            
-    RF_filter.add_to(map)
-
-    # Add Layer Control
-    folium.LayerControl(collapsed=False).add_to(map)
-
-    return map
-
-def extract_plot_data_by_MMSI(AIS_data, MMSI_list, RF_data = None, include_AIS = True, include_RF = False):
+def plot_AIS_and_RF_data(AIS_data, RF_data, MMSI_to_filter):
     """
-    Extracts AIS and/or RF data for a given list of MMSI's
+    Creates an interactive map showing both AIS vessel tracks and RF signals
     
     Args:
-        AIS_data (pd.DataFrame): AIS data
-        RF_data (pd.DataFrame): RF data, defaults to None
-        MMSI_list (list): List of MMSI numbers to filter by
-        include_AIS (bool): Whether to include AIS data points in the plot, defaults to True
-        include_RF (bool): Whether to include RF data points in the plot, defaults to False
-
+        AIS_data (pd.DataFrame): AIS data 
+        RF_data (pd.DataFrame): RF data 
+        MMSI_to_filter (int or list[int]): MMSI(s) of the vessel(s) to filter by
+    
     Returns:
-        tuple: 
-            pd.DataFrame: Filtered AIS data
-            pd.DataFrame: Filtered RF data
+        folium.Map: Folium interactive map
     """
-    filtered_AIS = None
-    filtered_RF = None
+    # Ensure MMSI_to_filter is always treated as a list
+    if isinstance(MMSI_to_filter, int):
+        MMSI_to_filter = [MMSI_to_filter]
+        
+    # Filter AIS dataset for the selected vessel(s)
+    AIS_filtered = AIS_data[AIS_data["ID"].isin(MMSI_to_filter)]
     
-    if include_AIS and AIS_data is not None:
-        filtered_AIS = AIS_data[AIS_data.apply(lambda row: (row["MMSI"], row["SubTrackID"]) in MMSI_list, axis=1)]
+    # Filter RF dataset for the same vessel(s)
+    RF_filtered = RF_data[(RF_data["ID"].isin(MMSI_to_filter)) & (~RF_data["RF"].isna())]
     
-    if include_RF and RF_data is not None:
-        filtered_RF = RF_data[RF_data.apply(lambda row: (row["MMSI"], row["SubTrackID"]) in MMSI_list, axis=1)]
-    
-    return filtered_AIS, filtered_RF 
-
-def map_vessel_route(AIS_data, MMSI_list, RF_data = None, include_AIS = True, include_RF = False): 
-    """
-    Plots the routes of vessels on an interactive map using Folium
-
-    Args:
-        AIS_data (pd.DataFrame): AIS data
-        RF_data (pd.DataFrame): RF data, defaults to None
-        MMSI_list (list): List of MMSI numbers to filter by
-        include_AIS (bool): Whether to include AIS data points in the plot, defaults to True
-        include_RF (bool): Whether to include RF data points in the plot, defaults to False
-
-    Returns:
-        folium.Map: Interactive folium map
-    """
-    # Get the data points for the specified MMSI
-    AIS_data, RF_data = extract_plot_data_by_MMSI(AIS_data, MMSI_list, RF_data, include_AIS, include_RF)
-    
-    # Initialize map
-    if AIS_data is not None:
-        map_center = [AIS_data["LAT"].mean(), AIS_data["LON"].mean()]
-    elif RF_data is not None:
-        map_center = [RF_data["RF_LAT"].mean(), RF_data["RF_LON"].mean()]
-    elif AIS_data is not None and RF_data is not None:
-        map_center = [(AIS_data["LAT"].mean() + RF_data["RF_LAT"].mean())/2, (AIS_data["LON"].mean() + RF_data["RF_LON"].mean())/2]
-            
+    # Determine the map center as the average (lat, lon) of all points
+    map_center = [AIS_filtered["LAT"].mean(), AIS_filtered["LON"].mean()]
     map = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB Positron")
-    
-    # Initialize the colors of the interactive map
-    colors = list(mcolors.CSS4_COLORS.keys()) 
 
-    # 1. Plot AIS data points 
-    if AIS_data is not None:
-        
-        for i, ((mmsi, track_id), group) in enumerate(AIS_data.groupby(['MMSI', 'SubTrackID'])):
-            AIS_filter = folium.FeatureGroup(name=f"AIS data points {mmsi}")
-            color = random.choice(colors)
-            
-            for _, row in group.iterrows():
-                heading = 315 + row['Heading']
-                icon_html = f'''
-                    <div style="font-size:12px; transform: rotate({heading}deg);">
-                        <i class="fa-solid fa-location-arrow" style="color: {color};"></i>
-                    </div>
-                    '''
-                folium.Marker(
-                    location=(row['LAT'], row['LON']),
-                    tooltip=f"AIS data point belongs to vessel with: <br> MMSI: {mmsi}<br> Timestamp: {row['BaseDateTime']}",
-                    icon=folium.DivIcon(html=icon_html)
-                ).add_to(AIS_filter)
-                
-            AIS_filter.add_to(map)
+    unique_ids = AIS_filtered["track_id"].unique()
+    colors = ["#e14a5b", "#117b88", "#9dc6ce", "#f46d43", "#fee08b"]
+    color_map = {track_id: colors[i % len(colors)] for i, track_id in enumerate(unique_ids)}
 
-    # 2. Plot RF data points 
-    if RF_data is not None:
-        RF_filter = folium.FeatureGroup(name="RF data points")
-        
-        for (mmsi, timestamp), group in RF_data.groupby(['MMSI', 'TimeStamp_RF']):
-            for _, row in group.iterrows():
-                custom_icon = CustomIcon(
-                    icon_image="../images/star_image_yellow.png",
-                    icon_size=(30, 30),
-                    icon_anchor=(15, 15)
-                )
-                folium.Marker(
-                    location=[row['RF_LAT'], row['RF_LON']],
-                    icon=custom_icon,
-                    tooltip=f"RF data point belongs to vessel with: <br> MMSI: {mmsi}<br> Timestamp: {row['TimeStamp_RF']}",
-                ).add_to(RF_filter)
-                
-        RF_filter.add_to(map)
-        
-    # Layer control
+    # ----------------------------
+    # Plot AIS routes as arrows
+    # ----------------------------
+    ais_layer = folium.FeatureGroup(name="AIS Tracks")
+    for (mmsi, track_id), group in AIS_filtered.groupby("ID"):
+        color = color_map[track_id]
+        for _, row in group.iterrows():
+            heading = 315 + row['Heading']
+            icon_html = f'''
+                <div style="font-size:12px; transform: rotate({heading}deg);">
+                    <i class="fa-solid fa-location-arrow" style="color: {color};"></i>
+                </div>
+                '''
+            folium.Marker(
+                location=(row['LAT'], row['LON']),
+                tooltip=f"AIS Point\nMMSI: {mmsi}\nTrack: {track_id}\nTime: {row['BaseDateTime']}",
+                icon=folium.DivIcon(html=icon_html)
+            ).add_to(ais_layer)
+    ais_layer.add_to(map)
+
+    # ----------------------------
+    # Plot RF signals as stars
+    # ----------------------------
+    rf_layer = folium.FeatureGroup(name="RF Signals")
+    for _, row in RF_filtered.iterrows():
+        track_id = row["track_id"]
+        color = color_map[track_id]
+        icon_html = f'''
+            <i class="fa-solid fa-star" style="color: {color};"></i>
+            '''
+        folium.Marker(
+            location=row["RF"],
+            tooltip=f"RF signal: {row['RF_Timestamp']}",
+            icon=folium.DivIcon(html=icon_html),
+        ).add_to(rf_layer)
+    rf_layer.add_to(map)
+
     folium.LayerControl(collapsed=False).add_to(map)
-
+    
     return map
+ 

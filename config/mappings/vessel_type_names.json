@@ -5,9 +5,10 @@
     "34": "Diving",
     "35": "Military",
     "36": "Yachting",
+    "37": "Pleasure Craft",
     "40": "Highspeed",
     "50": "Pilot",
-    "51": "Search and Rescue (SAR)",
+    "51": "Search and Rescue",
     "52": "Tug",
     "53": "PortTender",
     "54": "Antipollution",
@@ -18,5 +19,6 @@
     "59": "Notengaged",
     "60": "Passenger",
     "70": "Cargo",
-    "80": "Tanker"
+    "80": "Tanker",
+    "90": "Other"
 }

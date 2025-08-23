@@ -47,25 +47,3 @@ def compute_time_and_distance(curr_point, prev_point):
     distance_in_km = haversine(coordinates_1, coordinates_2, unit=Unit.KILOMETERS)
 
     return time_in_sec, distance_in_km
-
-def compute_average_time_and_distance(curr_point, prev_point_AIS, prev_point_RF):
-    """
-    Computes the average of time differences and distances from current point to two previous points
-    
-    Args:
-        current_point (tuple[datetime, tuple[float, float]]): A tuple containing a timestamp and a coordinate (latitude, longitude) for the current point
-        previous_point_AIS (tuple[datetime, tuple[float, float]]): A tuple containing a timestamp and a coordinate (latitude, longitude) from the AIS dataset
-        previous_point_RF (tuple[datetime, tuple[float, float]]): A tuple containing a timestamp and a coordinate (latitude, longitude) from the RF dataset
-
-    Returns:
-        tuple[float, float]: 
-            Average time difference in seconds (float)
-            Average geographic distance in kilometers (float)
-    """
-    time_1, distance_1 = compute_time_and_distance(curr_point, prev_point_AIS)
-    time_2, distance_2 = compute_time_and_distance(curr_point, prev_point_RF)
-    
-    if time_1 < 0 or time_2 < 0:
-        return (0,0)
-    
-    return ((time_1 + time_2) / 2, (distance_1 + distance_2) / 2)
