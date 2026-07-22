@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import os
 import math
+import pickle
 import time
 import numpy as np
 
@@ -138,52 +139,121 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         
     return meta
 
-def compute_AIS_RF_alignments_parallel(df, distance_threshold = 6, time_marge = timedelta(minutes = 10), time_window_hours = 3): 
+def _load_checkpoint(checkpoint_path):
+    """
+    Load previously computed RF-signal alignment results from a checkpoint file
+
+    The checkpoint file holds a sequence of pickled
+    ``(RF_key, result, time_iter)`` tuples, one per completed RF
+    signal, appended as they finish rather than written all at once.
+    This lets a run be resumed after a crash or interruption: RF
+    signals whose key is already in the returned dict are skipped.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file. Does not
+            need to exist yet.
+
+    Returns:
+        tuple: (dict mapping RF key to its result list, list of
+        per-signal processing times already recorded)
+    """
+    done_results = {}
+    times = []
+    if not os.path.exists(checkpoint_path):
+        return done_results, times
+
+    with open(checkpoint_path, "rb") as file:
+        while True:
+            try:
+                key, result, time_iter = pickle.load(file)
+            except EOFError:
+                break
+            done_results[key] = result
+            times.append(time_iter)
+    return done_results, times
+
+
+def compute_AIS_RF_alignments_parallel(
+    df,
+    distance_threshold = 6,
+    time_marge = timedelta(minutes = 10),
+    time_window_hours = 3,
+    checkpoint_path = None,
+):
     """
     Match RF signals to AIS tracks in parallel (per RF observation)
 
     Args:
-        df (pd.DataFrame): Dataset containing both AIS and RF data 
+        df (pd.DataFrame): Dataset containing both AIS and RF data
         distance_threshold (float): Max matching distance in km used in bbox expansion and precise Haversine checks. Defaults to 6 km
         time_marge (timedelta): Margin appended to the AIS track min/max timestamps. Defaults to 10 minutes
         time_window_hours (int): Temporal window size in hours for filtering AIS points around the RF timestamp. Defaults to 3
+        checkpoint_path (str, optional): Path to a checkpoint file used to persist
+            each RF signal's result as soon as it completes. If given, an
+            interrupted run can be restarted and will only recompute RF
+            signals that are not yet in the checkpoint.
 
     Returns:
         pd.DataFrame: AIS-RF candidate pairs
     """
     # Extract all RF observations (rows where RF coords are present)
     df_RF = df[df["RF"].notna()].copy()
-    
+
     # Give each RF signal a sequential identifier within its track
     # Added because this study evaluates alignments per individual RF signal, rather than per full RF sequence
     df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1
     RF_list = [RF_signal for _, RF_signal in df_RF.iterrows()]
-    
+
     # Group AIS tracks by ID and precompute metadata
     df_grouped = df.groupby("ID")
     AIS_metadata = make_AIS_metadata(df_grouped, distance_threshold, time_marge)
-    
-    results = []
-    times = []
-    
-    # Parallel alignment: submit one task per RF observation
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = [
-            executor.submit(compute_alignments, RF_signal, distance_threshold, AIS_metadata, time_window_hours) 
-            for RF_signal in RF_list
-        ]
-        
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Aligning RF signals to AIS sequences"):
-            try: 
-                time_iter, result = future.result()
-                results.append(result)
+
+    done_results, times = (
+        _load_checkpoint(checkpoint_path) if checkpoint_path else ({}, [])
+    )
+
+    # Skip RF signals that a previous, interrupted run already computed
+    pending_RF_list = [
+        RF_signal for RF_signal in RF_list
+        if (RF_signal["ID"], RF_signal["RF_signal_id"]) not in done_results
+    ]
+    if len(pending_RF_list) < len(RF_list):
+        print(
+            f"Resuming from checkpoint: skipping "
+            f"{len(RF_list) - len(pending_RF_list)} already-processed RF signals"
+        )
+
+    checkpoint_file = open(checkpoint_path, "ab") if checkpoint_path else None
+    try:
+        # Parallel alignment: submit one task per remaining RF observation
+        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = {
+                executor.submit(
+                    compute_alignments, RF_signal, distance_threshold, AIS_metadata, time_window_hours
+                ): (RF_signal["ID"], RF_signal["RF_signal_id"])
+                for RF_signal in pending_RF_list
+            }
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Aligning RF signals to AIS sequences"):
+                key = futures[future]
+                try:
+                    time_iter, result = future.result()
+                except Exception as e:
+                    print(f"Error during processing {e}")
+                    continue
+
+                done_results[key] = result
                 times.append(time_iter)
-            except Exception as e:
-                print(f"Error during processing {e}")
-                
+                if checkpoint_file is not None:
+                    pickle.dump((key, result, time_iter), checkpoint_file)
+                    checkpoint_file.flush()
+    finally:
+        if checkpoint_file is not None:
+            checkpoint_file.close()
+
     # Flatten the nested lists and return a dataframe
-    flatten_results = [item for sublist in results for item in sublist]
-    
+    flatten_results = [item for result in done_results.values() for item in result]
+
     avg_time_per_iter = np.array(times).mean()
     return pd.DataFrame(flatten_results), avg_time_per_iter
                     
@@ -192,11 +262,14 @@ if __name__ == "__main__":
 
     start_time = datetime.now()
     
-    SOURCE_PATH = "./data/processed/train_data_sample_5000.pkl" 
+    SOURCE_PATH = "./data/processed/train_data_sample_5000.pkl"
     DESTINATION_PATH = "./data/processed/AIS_RF_preselection_data.pkl"
-    
+    CHECKPOINT_PATH = "./data/processed/AIS_RF_preselection_checkpoint.pkl"
+
     df = pd.read_pickle(SOURCE_PATH)
-    alignments_df, avg_time_per_iter = compute_AIS_RF_alignments_parallel(df)
+    alignments_df, avg_time_per_iter = compute_AIS_RF_alignments_parallel(
+        df, checkpoint_path=CHECKPOINT_PATH
+    )
     alignments_df.to_pickle(DESTINATION_PATH)
     
     processing_time = datetime.now() - start_time
