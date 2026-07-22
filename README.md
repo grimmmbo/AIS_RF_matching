@@ -21,6 +21,7 @@ AIS_RF_matching_PHMM/
 │  ├─ 02_data_preparation.ipynb             
 │  └─ 03_modeling.ipynb 
 │  └─ 04_evaluation.ipynb       
+│  └─ 05_baseline_comparison.ipynb       
 ├─ scripts/
 │  ├─ data_loading/     
 │     └─ download_AIS_data.py        
@@ -36,6 +37,7 @@ AIS_RF_matching_PHMM/
 │  ├─ modeling/     
 │     ├─ AIS_RF_alignment/     
 │        ├─ AIS_RF_forward_alignment.py       
+│        ├─ AIS_RF_nn_baseline.py       
 │        └─ forward.py 
 │     ├─ AIS_RF_preselection/     
 │        └─ AIS_RF_preselection.py     
@@ -140,8 +142,29 @@ mkdir data\raw
 # Output: data/processed/AIS_RF_preselection_data.pkl
 
 # 4) Forward alignment scores (PHMM) 
+# NOTE: On the full study dataset, this step is compute-intensive (tens of minutes).
+# Progress is checkpointed per AIS track, so an interrupted run can be resumed
+# by simply re-running the same command.
 # Run: 
     uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_forward_alignment.py
 # Output: data/processed/AIS_RF_forward_scores_data.pkl
-```
+# Checkpoint: data/processed/AIS_RF_forward_scores_checkpoint.pkl
+
+# 5) Nearest-neighbor baselines
+# Runs four lower-bound baselines to compare the PHMM Forward alignment
+# against: plain Euclidean, Haversine (great-circle), point-to-segment
+# (perpendicular distance to the nearest AIS track leg), and time-weighted
+# (point-to-segment distance combined with an interpolated time gap, using
+# the same distance_threshold=6km/time_window_hours=3 defaults as the
+# preselection step). Fast (seconds to ~2 minutes on the sample dataset);
+# progress is checkpointed per AIS track like the Forward alignment step above.
+# Run:
+    uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_nn_baseline.py
+# Output:
+    # data/processed/AIS_RF_nn_baseline_euclidean_scores_data.pkl
+    # data/processed/AIS_RF_nn_baseline_haversine_scores_data.pkl
+    # data/processed/AIS_RF_nn_baseline_segment_scores_data.pkl
+    # data/processed/AIS_RF_nn_baseline_time_weighted_scores_data.pkl
+
+
 
