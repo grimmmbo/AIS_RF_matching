@@ -126,18 +126,18 @@ mkdir data\raw
     uv run python scripts/data_preprocessing/AIS/pre_filter_vessel_type.py
 # Output: data/processed/cargo_vessels.parquet
 
-# 3) Preprocess data
+# 3) Preprocess data, including synthetic RF signal generation
 # Run full '02_data_preparation.ipynb' notebook
     uv run python -m notebook notebooks/02_data_preparation.ipynb
 # Output: 
     # 1. data/processed/AIS_sample_no_RF_5000.pkl
     # 2. data/processed/statistics_sample_5000.pkl
-    # 3. data/processed/train_data_sample_5000.pkl
+    # 3. data/processed/train_data_sample_5000.pkl               (RF error model: uniform)
+    # 4. data/processed/gaussian/train_data_sample_5000.pkl       (RF error model: gaussian)
 
 # 4) Preselect AIS–RF candidates 
-# NOTE: On the full study dataset, this step is compute-intensive (~10 hours).
-# A precomputed result is included in the repo.
-# To regenerate it yourself, run:
+# Fast (seconds on the sample dataset, parallelized across all CPU cores).
+# A precomputed result is included in the repo; to regenerate it yourself, run:
     uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
 # Output: data/processed/AIS_RF_preselection_data.pkl
 
@@ -165,6 +165,43 @@ mkdir data\raw
     # data/processed/AIS_RF_nn_baseline_haversine_scores_data.pkl
     # data/processed/AIS_RF_nn_baseline_segment_scores_data.pkl
     # data/processed/AIS_RF_nn_baseline_time_weighted_scores_data.pkl
+```
+
+### RF error models
+
+`02_data_preparation.ipynb` simulates RF direction-finding detections around
+each vessel's true AIS position using one of two error models, both defined in
+`scripts/data_preprocessing/RF/generate_synthethic_RF_data.py`:
+
+- **`uniform`** (default): the RF bearing is the vessel heading plus uniform
+  noise in `[-error_bearing, +error_bearing]` (default ±60°), and the offset
+  distance is drawn from `Normal(mean_distance=2000, std_dev_distance=100)`
+  meters — i.e. a fixed ~2 km systematic offset in a heading-relative cone.
+- **`gaussian`**: an isotropic 2D positional error with no heading dependence
+  and no fixed offset. East/north components are each drawn from
+  `Normal(0, sigma)` (default `sigma=2000` meters), so the resulting distance
+  follows a Rayleigh distribution (mean ≈ 1.25 × sigma) and the bearing is
+  uniform over the full circle.
+
+The notebook generates both variants in the same run: `uniform` output keeps
+the original flat file layout under `data/processed/` (backward compatible),
+while `gaussian` output is written to its own `data/processed/gaussian/`
+subfolder. Downstream scripts select which one to use via `--error-model`:
+
+```bash
+# Uses data/processed/ (default)
+uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py --error-model uniform
+
+# Uses data/processed/gaussian/
+uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py --error-model gaussian
+uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_forward_alignment.py --error-model gaussian
+uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_nn_baseline.py --error-model gaussian
+```
+
+Each script writes its output into the same folder it read its input from, so
+the two error models' pipeline artifacts never mix. `04_evaluation.ipynb` and
+`05_baseline_comparison.ipynb` each expose an `ERROR_MODEL` variable near the
+top of their data-loading cell to select which folder to read results from.
 
 
 

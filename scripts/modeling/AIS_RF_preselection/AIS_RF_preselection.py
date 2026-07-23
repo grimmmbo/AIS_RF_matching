@@ -1,3 +1,4 @@
+import argparse
 import pandas as pd
 from haversine import haversine
 from datetime import timedelta, datetime
@@ -10,27 +11,66 @@ import time
 import numpy as np
 
 ### RUNNING TIME ###
-    # Total processing time 10:55:55.579386 (hh:mm:ss.ms)
-    # Average processing time per AIS-RF pair took 0.014387352801028956 seconds
+    # Historical baseline: 10:55:55.579386 (hh:mm:ss.ms) on the 5000-track
+    # sample dataset, dominated by re-pickling AIS_metadata over IPC for
+    # every submitted task. With AIS_metadata now passed once per worker via
+    # _init_worker() instead of per task, the same dataset runs in ~10 seconds.
 
-def compute_alignments(RF_signal, distance_threshold, metadata, time_window_hours):
+### WORKER-PROCESS GLOBALS ###
+# Populated once per worker by _init_worker() so that the (potentially
+# large) AIS metadata dict is pickled and sent over IPC exactly once per
+# worker process, rather than once per submitted RF signal.
+_worker_metadata = None
+_worker_distance_threshold = None
+_worker_time_window_hours = None
+
+
+def _init_worker(metadata, distance_threshold, time_window_hours):
+    """
+    ProcessPoolExecutor initializer: stashes the shared, read-only
+    alignment inputs in this worker's globals so compute_alignments()
+    can reuse them across every task the worker handles.
+
+    Args:
+        metadata (dict): Pre-computed per-track metadata
+        distance_threshold (float): Maximum distance (km) to consider an AIS point as a valid match candidate
+        time_window_hours (int): Temporal window size in hours for filtering AIS points around the RF timestamp
+    """
+    global _worker_metadata, _worker_distance_threshold, _worker_time_window_hours
+    _worker_metadata = metadata
+    _worker_distance_threshold = distance_threshold
+    _worker_time_window_hours = time_window_hours
+
+
+def compute_alignments(RF_signal, distance_threshold=None, metadata=None, time_window_hours=None):
     """
     Compute forward alignment candidates between a single RF signal and many AIS tracks
 
     The function performs three filters:
     1) time-range check against each AIS track's global min/max (with margin),
     2) spatial check using a precomputed bounding box per AIS track,
-    3) precise distance check (Haversine) within a local temporal window around the RF timestamp. 
-    
+    3) precise distance check (Haversine) within a local temporal window around the RF timestamp.
+
+    When run inside a ProcessPoolExecutor initialized with _init_worker(),
+    distance_threshold/metadata/time_window_hours can be omitted and are
+    read from this worker's globals instead, avoiding re-pickling the
+    (shared, unchanged) metadata dict for every RF signal. They can still
+    be passed explicitly, e.g. for direct/single-process calls in tests.
+
     Args:
         RF_signal (pd.Series): A single RF observation
-        distance_threshold (float): Maximum distance (km) to consider an AIS point as a valid match candidate 
-        metadata (dict): Pre-computed per-track metadata 
-        time_window_hours (int): Temporal window size in hours for filtering AIS points around the RF timestamp. Defaults to 3
+        distance_threshold (float, optional): Maximum distance (km) to consider an AIS point as a valid match candidate
+        metadata (dict, optional): Pre-computed per-track metadata
+        time_window_hours (int, optional): Temporal window size in hours for filtering AIS points around the RF timestamp. Defaults to 3
 
     Returns:
         list: Candidate list
     """
+    if metadata is None:
+        metadata = _worker_metadata
+        distance_threshold = _worker_distance_threshold
+        time_window_hours = _worker_time_window_hours
+
     start = time.time()
     # Extract RF information
     RF_datetime = RF_signal["RF_Timestamp"]
@@ -66,8 +106,8 @@ def compute_alignments(RF_signal, distance_threshold, metadata, time_window_hour
 
         # (3) Precise spatial check within configurable time window
             # Skip if no AIS points fall within the time window or within the distance threshold of the RF point
-        times = np.array(meta["times"], dtype='datetime64[ns]')
-        coords = np.array(meta["coords"])
+        times = meta["times"]
+        coords = meta["coords"]
         RF_time = np.datetime64(RF_datetime)
         
         time_window = np.timedelta64(time_window_hours, 'h') 
@@ -127,8 +167,8 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
         lon_margin_max = distance_threshold / (111 * math.cos(math.radians(max_lat)))
 
         meta[track_id] = {
-            "coords": coords,
-            "times": times, 
+            "coords": np.array(coords),
+            "times": np.array(times, dtype='datetime64[ns]'),
             "min_lat": min_lat - lat_margin,
             "max_lat": max_lat + lat_margin,
             "min_lon": min_lon - lon_margin_min,
@@ -225,12 +265,16 @@ def compute_AIS_RF_alignments_parallel(
 
     checkpoint_file = open(checkpoint_path, "ab") if checkpoint_path else None
     try:
-        # Parallel alignment: submit one task per remaining RF observation
-        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+        # Parallel alignment: submit one task per remaining RF observation.
+        # AIS_metadata is handed to each worker once via the initializer
+        # instead of being re-pickled on every submit() call.
+        with ProcessPoolExecutor(
+            max_workers=os.cpu_count(),
+            initializer=_init_worker,
+            initargs=(AIS_metadata, distance_threshold, time_window_hours),
+        ) as executor:
             futures = {
-                executor.submit(
-                    compute_alignments, RF_signal, distance_threshold, AIS_metadata, time_window_hours
-                ): (RF_signal["ID"], RF_signal["RF_signal_id"])
+                executor.submit(compute_alignments, RF_signal): (RF_signal["ID"], RF_signal["RF_signal_id"])
                 for RF_signal in pending_RF_list
             }
 
@@ -255,16 +299,39 @@ def compute_AIS_RF_alignments_parallel(
     flatten_results = [item for result in done_results.values() for item in result]
 
     avg_time_per_iter = np.array(times).mean()
-    return pd.DataFrame(flatten_results), avg_time_per_iter
+    result_df = pd.DataFrame(flatten_results)
+    if not result_df.empty:
+        # Row order otherwise follows worker-completion order, which is
+        # non-deterministic across runs and produces spurious diffs on the
+        # pickled output even when the underlying matches are unchanged.
+        result_df = result_df.sort_values(
+            ["RF_track_id", "RF_signal_id", "AIS_track_id"]
+        ).reset_index(drop=True)
+    return result_df, avg_time_per_iter
                     
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Align AIS and RF data")
+    parser.add_argument(
+        "--error-model", choices=["uniform", "gaussian"], default="uniform",
+        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+    )
+    args = parser.parse_args()
+
     print("Aligning AIS and RF data...")
 
     start_time = datetime.now()
-    
-    SOURCE_PATH = "./data/processed/train_data_sample_5000.pkl"
-    DESTINATION_PATH = "./data/processed/AIS_RF_preselection_data.pkl"
-    CHECKPOINT_PATH = "./data/processed/AIS_RF_preselection_checkpoint.pkl"
+
+    # "uniform" keeps the original flat layout for backward compatibility;
+    # other error models live in their own subfolder under data/processed
+    DATA_DIR = (
+        "./data/processed" if args.error_model == "uniform"
+        else f"./data/processed/{args.error_model}"
+    )
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    SOURCE_PATH = f"{DATA_DIR}/train_data_sample_5000.pkl"
+    DESTINATION_PATH = f"{DATA_DIR}/AIS_RF_preselection_data.pkl"
+    CHECKPOINT_PATH = f"{DATA_DIR}/AIS_RF_preselection_checkpoint.pkl"
 
     df = pd.read_pickle(SOURCE_PATH)
     alignments_df, avg_time_per_iter = compute_AIS_RF_alignments_parallel(

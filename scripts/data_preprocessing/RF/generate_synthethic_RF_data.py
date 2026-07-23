@@ -1,11 +1,15 @@
-import math 
-import random 
+import math
+import random
 from datetime import datetime, timedelta
+import numpy as np
 import pandas as pd
 from haversine import haversine
 
 from scripts.modeling.transition_probabilities.AIS_RF_distribution import *
 from scripts.modeling.transition_probabilities.match_distribution import *
+
+# RF position-error models supported by generate_training_data()
+ERROR_MODELS = ("uniform", "gaussian")
 
 def generate_random_start_time():
     """
@@ -48,7 +52,7 @@ def generate_synthetic_RF_data():
 
 def generate_error_distance_and_bearing(timestamps, mean_distance = 2000, std_dev_distance = 100):
     """
-    Generates an error distance for each RF timestamp
+    Generates an error distance for each RF timestamp, for the "uniform" error model
 
     Args:
         timestamps (list): Simulated RF timestamps
@@ -60,38 +64,59 @@ def generate_error_distance_and_bearing(timestamps, mean_distance = 2000, std_de
     """
     return {
         # Sample distance error around the mean
-        timestamp: [round(np.random.normal(mean_distance, std_dev_distance), 6)] 
+        timestamp: [round(np.random.normal(mean_distance, std_dev_distance), 6)]
         for timestamp in timestamps
     }
 
-def compute_coordinates(latitude, longitude, heading, error_distance, error_bearing=60):
+def generate_gaussian_error_offset(sigma=2000):
     """
-    Computes a new geographical coordinate from a base position using a error distance and bearing
+    Samples an isotropic 2D Gaussian position error: N(0, sigma) on each axis
+
+    Unlike the "uniform" model's error_distance (which carries a fixed
+    mean_distance offset plus a small amount of noise), this offset has no
+    systematic bias: east/north components are each drawn from Normal(0, sigma),
+    so the true position itself is the most likely outcome and error grows
+    only with sigma. The resulting distance therefore follows a Rayleigh
+    distribution with expected value sigma * sqrt(pi/2) (~1.25 * sigma), and
+    the bearing is uniform over the full circle, independent of vessel heading
+
+    Args:
+        sigma (float): Standard deviation (meters) of the position error's
+            east/north components. Defaults to 2000
+
+    Returns:
+        tuple: (error_distance in meters, bearing in degrees, compass convention)
+    """
+    east_offset = np.random.normal(0, sigma)
+    north_offset = np.random.normal(0, sigma)
+    distance = math.hypot(east_offset, north_offset)
+    bearing = math.degrees(math.atan2(east_offset, north_offset)) % 360
+    return distance, bearing
+
+def compute_coordinates(latitude, longitude, bearing, error_distance):
+    """
+    Computes a new geographical coordinate from a base position using a bearing and distance
 
     Args:
         latitude (float): Latitude of the reference point
         longitude (float): Longitude of the reference point
-        heading (float): Direction of the ship at the reference point
+        bearing (float): Direction (degrees, compass convention) to offset towards
         error_distance (float): Distance in meters to offset from the reference point
-        error_bearing (float): Maximum angular deviation (degrees) applied uniformly to heading. Defaults to 60 (i.e., ±60°)
-        
-        Based on strategy: https://stackoverflow.com/questions/18580414/implementation-of-great-circle-destination-formula 
+
+        Based on strategy: https://stackoverflow.com/questions/18580414/implementation-of-great-circle-destination-formula
 
     Returns:
         tuple: (latitude, longitude) of the simulated RF signal location
     """
-    R = 6371000  # Earth radius in meters 
+    R = 6371000  # Earth radius in meters
+    bearing = math.radians(bearing % 360)
 
-    # Add uniform angular noise to vessel heading
-    noise = np.random.uniform(-error_bearing, error_bearing)
-    bearing = math.radians((heading + noise) % 360)
-
-    # Convert latitude/longitude to radians 
+    # Convert latitude/longitude to radians
     latitude, longitude = math.radians(latitude), math.radians(longitude)
-    
+
     # Calculate new coordinates
     new_latitude = math.asin(
-        math.sin(latitude) * math.cos(error_distance / R) + 
+        math.sin(latitude) * math.cos(error_distance / R) +
         math.cos(latitude) * math.sin(error_distance / R) * math.cos(bearing)
     )
     new_longitude = longitude + math.atan2(
@@ -102,7 +127,7 @@ def compute_coordinates(latitude, longitude, heading, error_distance, error_bear
     # Convert back to degrees
     new_latitude = math.degrees(new_latitude)
     new_longitude = math.degrees(new_longitude)
-    
+
     return new_latitude, new_longitude
 
 def get_RF_times_for_AIS_seq(RF_timestamps, AIS_seq, time_margin):
@@ -130,10 +155,12 @@ def get_RF_times_for_AIS_seq(RF_timestamps, AIS_seq, time_margin):
         if start_time <= datetime.combine(pd.to_datetime(date).date(), RF_time.time()) <= end_time
     ])
     
-def generate_training_data(df, time_margin = 5):
+def generate_training_data(
+    df, time_margin=5, error_model="uniform", error_bearing=60, sigma=2000,
+):
     """
     Generates labeled training data by combining AIS trajectories with simulated RF signal observations
-    
+
     Steps:
       1. Generate synthetic RF revisit times
       2. For each AIS trajectory:
@@ -144,20 +171,29 @@ def generate_training_data(df, time_margin = 5):
          - Use AIS_RF_probability() and match_probability() to decide whether the RF is a match ("M") or standalone ("RF")
          - Add unmatched AIS points as "AIS"
          - Add "begin" and "end" markers to each sequence
-    
+
     Note:
     For the scope of this study, such detailed labeling is not strictly required,
-    since we only compare a single RF signal to an entire AIS trajectory 
-    However, the richer labeling scheme makes the dataset reusable for more advanced sequence alignment 
+    since we only compare a single RF signal to an entire AIS trajectory
+    However, the richer labeling scheme makes the dataset reusable for more advanced sequence alignment
     or decoding (e.g., Viterbi) tasks in future work
 
     Args:
         df (pd.DataFrame): AIS data
         time_margin (int):  Number of minutes to extend the AIS route (before and after). Defaults to 5 min
+        error_model (str): RF position-error model, one of "uniform" or "gaussian"
+            (see ERROR_MODELS). Defaults to "uniform"
+        error_bearing (float): Maximum angular deviation (degrees) applied uniformly to
+            the vessel heading. Only used when error_model="uniform". Defaults to 60 (i.e. ±60°)
+        sigma (float): Standard deviation (meters) of the isotropic Normal(0, sigma)
+            position error. Only used when error_model="gaussian". Defaults to 2000
 
     Returns:
         pd.DataFrame: Labeled sequence data
     """
+    if error_model not in ERROR_MODELS:
+        raise ValueError(f"Unknown error_model {error_model!r}, expected one of {ERROR_MODELS}")
+
     random.seed(42)
     np.random.seed(42)
     
@@ -171,8 +207,12 @@ def generate_training_data(df, time_margin = 5):
         
         # Step 2: Loop over AIS trajectories (grouped by vessel ID and track_id)
         RF_times = get_RF_times_for_AIS_seq(RF_revisit_timestamps, AIS_seq, time_margin)
-        RF_erros = generate_error_distance_and_bearing(RF_times)
-        
+        # "uniform" distances are pregenerated in bulk (unchanged from the
+        # original algorithm) to keep its random-draw sequence, and therefore
+        # its output for a fixed seed, identical; "gaussian" needs no heading
+        # and is instead sampled per RF point in generate_gaussian_error_offset()
+        RF_erros = generate_error_distance_and_bearing(RF_times) if error_model == "uniform" else None
+
         RF_timestamps_seen = []
         
         # Step 3: For each RF time, find closest AIS point
@@ -184,9 +224,16 @@ def generate_training_data(df, time_margin = 5):
             closest_AIS_lon = AIS_seq.loc[closest_time_idx, "LON"]
             closest_AIS_heading = AIS_seq.loc[closest_time_idx, "Heading"]
             
-            # Generate synthetic RF coordinates with noise
-            distance = RF_erros[RF_datetime][0]
-            synthetic_RF_lat, synthetic_RF_lon = compute_coordinates(closest_AIS_lat, closest_AIS_lon, closest_AIS_heading, distance)
+            # Generate synthetic RF coordinates with noise, using the selected error model
+            if error_model == "uniform":
+                distance = RF_erros[RF_datetime][0]
+                bearing = (closest_AIS_heading + np.random.uniform(-error_bearing, error_bearing)) % 360
+            else:  # "gaussian"
+                distance, bearing = generate_gaussian_error_offset(sigma=sigma)
+
+            synthetic_RF_lat, synthetic_RF_lon = compute_coordinates(
+                closest_AIS_lat, closest_AIS_lon, bearing, distance
+            )
             
             # Compute time and distance differences
             distance_diff = haversine((closest_AIS_lat, closest_AIS_lon), (synthetic_RF_lat, synthetic_RF_lon))

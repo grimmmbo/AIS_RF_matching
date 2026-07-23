@@ -1,4 +1,5 @@
 
+import argparse
 import multiprocessing
 import os
 import pickle
@@ -238,14 +239,29 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
 
 # === MAIN SCRIPT ===
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Calculate Forward score for AIS-RF pairs")
+    parser.add_argument(
+        "--error-model", choices=["uniform", "gaussian"], default="uniform",
+        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+    )
+    args = parser.parse_args()
+
     print("Calculating Forward score for AIS-RF pair...")
 
     start_time = datetime.now()
 
-    SOURCE_PATH1 = "./data/processed/train_data_sample_5000.pkl"
-    SOURCE_PATH2 = "./data/processed/AIS_RF_preselection_data.pkl"
-    DESTINATION_PATH = "./data/processed/AIS_RF_forward_scores_data.pkl"
-    CHECKPOINT_PATH = "./data/processed/AIS_RF_forward_scores_checkpoint.pkl"
+    # "uniform" keeps the original flat layout for backward compatibility;
+    # other error models live in their own subfolder under data/processed
+    DATA_DIR = (
+        "./data/processed" if args.error_model == "uniform"
+        else f"./data/processed/{args.error_model}"
+    )
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    SOURCE_PATH1 = f"{DATA_DIR}/train_data_sample_5000.pkl"
+    SOURCE_PATH2 = f"{DATA_DIR}/AIS_RF_preselection_data.pkl"
+    DESTINATION_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_data.pkl"
+    CHECKPOINT_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_checkpoint.pkl"
 
     df_train = pd.read_pickle(SOURCE_PATH1)
     df_preselection = pd.read_pickle(SOURCE_PATH2)

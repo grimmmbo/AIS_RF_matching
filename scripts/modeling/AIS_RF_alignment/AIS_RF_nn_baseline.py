@@ -1,4 +1,5 @@
 
+import argparse
 import math
 import multiprocessing
 import os
@@ -547,8 +548,23 @@ MODELS = {
 }
 
 if __name__ == "__main__":
-    SOURCE_PATH1 = "./data/processed/train_data_sample_5000.pkl"
-    SOURCE_PATH2 = "./data/processed/AIS_RF_preselection_data.pkl"
+    parser = argparse.ArgumentParser(description="Calculate nearest-neighbor baseline scores for AIS-RF pairs")
+    parser.add_argument(
+        "--error-model", choices=["uniform", "gaussian"], default="uniform",
+        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+    )
+    args = parser.parse_args()
+
+    # "uniform" keeps the original flat layout for backward compatibility;
+    # other error models live in their own subfolder under data/processed
+    DATA_DIR = (
+        "./data/processed" if args.error_model == "uniform"
+        else f"./data/processed/{args.error_model}"
+    )
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    SOURCE_PATH1 = f"{DATA_DIR}/train_data_sample_5000.pkl"
+    SOURCE_PATH2 = f"{DATA_DIR}/AIS_RF_preselection_data.pkl"
 
     df_train = pd.read_pickle(SOURCE_PATH1)
     df_preselection = pd.read_pickle(SOURCE_PATH2)
@@ -558,8 +574,8 @@ if __name__ == "__main__":
 
         start_time = datetime.now()
 
-        DESTINATION_PATH = f"./data/processed/AIS_RF_nn_baseline_{model_name}_scores_data.pkl"
-        CHECKPOINT_PATH = f"./data/processed/AIS_RF_nn_baseline_{model_name}_scores_checkpoint.pkl"
+        DESTINATION_PATH = f"{DATA_DIR}/AIS_RF_nn_baseline_{model_name}_scores_data.pkl"
+        CHECKPOINT_PATH = f"{DATA_DIR}/AIS_RF_nn_baseline_{model_name}_scores_checkpoint.pkl"
 
         score_df, avg_time_per_iter = compute_fn(
             df_train, df_preselection, checkpoint_path=CHECKPOINT_PATH
