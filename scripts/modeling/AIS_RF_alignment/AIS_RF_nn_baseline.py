@@ -1,3 +1,15 @@
+"""
+Nearest-neighbor baseline models: for each RF signal, matches the AIS
+track whose closest point is nearest. Four distance metrics are
+provided as an ablation: plain Euclidean (naive, no geodesic
+correction), Haversine (proper great-circle distance to the nearest
+AIS point), point-to-segment (perpendicular distance to the nearest
+AIS track leg, so an RF signal landing between two AIS fixes isn't
+penalized for missing both), and time-weighted (point-to-segment
+distance combined with an interpolated time gap, so a spatially close
+but temporally distant AIS leg is penalized). Used as lower bounds to
+compare the PHMM Forward alignment against.
+"""
 
 import argparse
 import math
@@ -18,17 +30,6 @@ from scripts.modeling.AIS_RF_alignment.AIS_RF_forward_alignment import (
     _load_checkpoint,
 )
 
-### RUNNING TIME ###
-    # Baseline model: for each RF signal, matches the AIS track whose closest
-    # point is nearest. Four distance metrics are provided as an ablation:
-    # plain Euclidean (naive, no geodesic correction), Haversine (proper
-    # great-circle distance to the nearest AIS point), point-to-segment
-    # (perpendicular distance to the nearest AIS track leg, so an RF signal
-    # landing between two AIS fixes isn't penalized for missing both), and
-    # time-weighted (point-to-segment distance combined with an interpolated
-    # time gap, so a spatially close but temporally distant AIS leg is
-    # penalized). Used as lower bounds to compare the PHMM Forward alignment
-    # against.
 
 def euclidean_distance(point_a, point_b):
     """

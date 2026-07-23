@@ -16,16 +16,17 @@ import numpy as np
     # every submitted task. With AIS_metadata now passed once per worker via
     # _init_worker() instead of per task, the same dataset runs in ~10 seconds.
 
-### WORKER-PROCESS GLOBALS ###
-# Populated once per worker by _init_worker() so that the (potentially
-# large) AIS metadata dict is pickled and sent over IPC exactly once per
-# worker process, rather than once per submitted RF signal.
+# Worker-process globals, populated once per worker by _init_worker() so
+# that the (potentially large) AIS metadata dict is pickled and sent over
+# IPC exactly once per worker process, rather than once per submitted RF
+# signal.
 _worker_metadata = None
 _worker_distance_threshold = None
 _worker_time_window_hours = None
+_worker_include_true_match = None
 
 
-def _init_worker(metadata, distance_threshold, time_window_hours):
+def _init_worker(metadata, distance_threshold, time_window_hours, include_true_match=True):
     """
     ProcessPoolExecutor initializer: stashes the shared, read-only
     alignment inputs in this worker's globals so compute_alignments()
@@ -35,33 +36,87 @@ def _init_worker(metadata, distance_threshold, time_window_hours):
         metadata (dict): Pre-computed per-track metadata
         distance_threshold (float): Maximum distance (km) to consider an AIS point as a valid match candidate
         time_window_hours (int): Temporal window size in hours for filtering AIS points around the RF timestamp
+        include_true_match (bool): Forwarded to compute_alignments(); see its docstring
     """
-    global _worker_metadata, _worker_distance_threshold, _worker_time_window_hours
+    global _worker_metadata, _worker_distance_threshold, _worker_time_window_hours, _worker_include_true_match
     _worker_metadata = metadata
     _worker_distance_threshold = distance_threshold
     _worker_time_window_hours = time_window_hours
+    _worker_include_true_match = include_true_match
 
 
-def compute_alignments(RF_signal, distance_threshold=None, metadata=None, time_window_hours=None):
+def passes_prefilter_stages(RF_datetime, RF_coordinates, meta, distance_threshold, time_window_hours):
+    """
+    Evaluate the 3-stage prefilter for one RF observation against one AIS track
+
+    Stages: (1) time-range check against the track's global min/max (with
+    margin), (2) spatial check using the track's precomputed bounding box,
+    (3) precise distance check (Haversine) within a local temporal window
+    around the RF timestamp. Shared by compute_alignments() (for every
+    non-true-match candidate) and by the open-set diagnostics/leave-one-out
+    negative construction in scripts/modeling/AIS_RF_open_set, which need
+    to run this same check without the true-match bypass.
+
+    Args:
+        RF_datetime: Timestamp of the RF observation
+        RF_coordinates (tuple[float, float]): (lat, lon) of the RF observation
+        meta (dict): Precomputed metadata for one AIS track, as produced by make_AIS_metadata
+        distance_threshold (float): Maximum distance (km) to consider an AIS point as a valid match candidate
+        time_window_hours (int): Temporal window size in hours for filtering AIS points around the RF timestamp
+
+    Returns:
+        bool: True if the RF observation survives all 3 stages
+    """
+    # (1) Time-range prefilter:
+        # Fail early if RF timestamp lies outside the (min_time, max_time) of the AIS track
+    if not (meta["min_time"] <= RF_datetime <= meta["max_time"]):
+        return False
+
+    # (2) Bounding box check:
+        # Fail if RF point lies outside the expanded lat/lon bounding box of this track
+    if not (meta["min_lat"] <= RF_coordinates[0] <= meta["max_lat"] and
+            meta["min_lon"] <= RF_coordinates[1] <= meta["max_lon"]):
+        return False
+
+    # (3) Precise spatial check within configurable time window:
+        # Fail if no AIS points fall within the time window and the distance threshold of the RF point
+    RF_time = np.datetime64(RF_datetime)
+    time_window = np.timedelta64(time_window_hours, 'h')
+    mask = np.abs(meta["times"] - RF_time) <= time_window
+    filtered_coords = meta["coords"][mask]
+
+    return any(haversine(RF_coordinates, coord) <= distance_threshold for coord in filtered_coords)
+
+
+def compute_alignments(
+    RF_signal, distance_threshold=None, metadata=None, time_window_hours=None, include_true_match=None,
+):
     """
     Compute forward alignment candidates between a single RF signal and many AIS tracks
 
-    The function performs three filters:
-    1) time-range check against each AIS track's global min/max (with margin),
-    2) spatial check using a precomputed bounding box per AIS track,
-    3) precise distance check (Haversine) within a local temporal window around the RF timestamp.
+    Runs passes_prefilter_stages() (the 3-stage prefilter) against every
+    AIS track's precomputed metadata.
 
     When run inside a ProcessPoolExecutor initialized with _init_worker(),
-    distance_threshold/metadata/time_window_hours can be omitted and are
-    read from this worker's globals instead, avoiding re-pickling the
-    (shared, unchanged) metadata dict for every RF signal. They can still
-    be passed explicitly, e.g. for direct/single-process calls in tests.
+    distance_threshold/metadata/time_window_hours/include_true_match can be
+    omitted and are read from this worker's globals instead, avoiding
+    re-pickling the (shared, unchanged) metadata dict for every RF signal.
+    They can still be passed explicitly, e.g. for direct/single-process
+    calls in tests.
 
     Args:
         RF_signal (pd.Series): A single RF observation
         distance_threshold (float, optional): Maximum distance (km) to consider an AIS point as a valid match candidate
         metadata (dict, optional): Pre-computed per-track metadata
         time_window_hours (int, optional): Temporal window size in hours for filtering AIS points around the RF timestamp. Defaults to 3
+        include_true_match (bool, optional): If True (default), the RF
+            signal's own true AIS track is always force-included as a
+            candidate, bypassing all 3 prefilter stages — this is the
+            existing closed-set evaluation behavior. If False, the true
+            track is excluded from the candidate pool entirely instead
+            (never evaluated, never emitted as a candidate) — used to
+            build leave-one-out open-set negatives, where the true track
+            must be genuinely absent rather than merely not force-included.
 
     Returns:
         list: Candidate list
@@ -70,6 +125,9 @@ def compute_alignments(RF_signal, distance_threshold=None, metadata=None, time_w
         metadata = _worker_metadata
         distance_threshold = _worker_distance_threshold
         time_window_hours = _worker_time_window_hours
+        include_true_match = _worker_include_true_match
+    elif include_true_match is None:
+        include_true_match = True
 
     start = time.time()
     # Extract RF information
@@ -77,53 +135,35 @@ def compute_alignments(RF_signal, distance_threshold=None, metadata=None, time_w
     RF_coordinates = RF_signal["RF"]
     RF_track_id = RF_signal["ID"]
     RF_signal_id = RF_signal["RF_signal_id"]
-                
+
     results = []
 
     # Iterate over all AIS tracks using the precomputed metadata
     for AIS_track_id, meta in metadata.items():
-        # Always include the ground-truth pair (same IDs) to ensure it appears in candidates
         if AIS_track_id == RF_track_id:
-            is_true_match = True
-            results.append({
-                "RF_signal_id": RF_signal_id,
-                "RF_track_id": RF_track_id,
-                "AIS_track_id": AIS_track_id,
-                "is_true_match": is_true_match
-            })
-            continue
-        
-        # (1) Time-range prefilter:
-            # Skip early if RF timestamp lies outside the (min_time, max_time) of the AIS track
-        if not (meta["min_time"] <= RF_datetime <= meta["max_time"]):
-            continue
-        
-        # (2) Bounding box check: 
-            # Skip if RF point lies outside the expanded lat/lon bounding box of this track
-        if not (meta["min_lat"] <= RF_coordinates[0] <= meta["max_lat"] and
-                meta["min_lon"] <= RF_coordinates[1] <= meta["max_lon"]):
+            # Ground-truth pair (same IDs): either force-included
+            # bypassing all 3 stages (closed-set default), or skipped
+            # entirely so it is genuinely absent from the candidate pool
+            # (leave-one-out open-set negatives)
+            if include_true_match:
+                results.append({
+                    "RF_signal_id": RF_signal_id,
+                    "RF_track_id": RF_track_id,
+                    "AIS_track_id": AIS_track_id,
+                    "is_true_match": True,
+                })
             continue
 
-        # (3) Precise spatial check within configurable time window
-            # Skip if no AIS points fall within the time window or within the distance threshold of the RF point
-        times = meta["times"]
-        coords = meta["coords"]
-        RF_time = np.datetime64(RF_datetime)
-        
-        time_window = np.timedelta64(time_window_hours, 'h') 
-        mask = np.abs(times - RF_time) <= time_window
-        filtered_coords = coords[mask]
-        
-        in_range = any(haversine(RF_coordinates, coord) <= distance_threshold for coord in filtered_coords)
-        if not in_range:
+        if not passes_prefilter_stages(RF_datetime, RF_coordinates, meta, distance_threshold, time_window_hours):
             continue
 
-        is_true_match = RF_track_id == AIS_track_id
         results.append({
             "RF_signal_id": RF_signal_id,
             "RF_track_id": RF_track_id,
             "AIS_track_id": AIS_track_id,
-            "is_true_match": is_true_match
+            # Always False here: the AIS_track_id == RF_track_id case is
+            # handled (and 'continue'd past) above
+            "is_true_match": False,
         })
     end = time.time() - start
 
@@ -219,6 +259,7 @@ def compute_AIS_RF_alignments_parallel(
     time_marge = timedelta(minutes = 10),
     time_window_hours = 3,
     checkpoint_path = None,
+    include_true_match = True,
 ):
     """
     Match RF signals to AIS tracks in parallel (per RF observation)
@@ -232,6 +273,11 @@ def compute_AIS_RF_alignments_parallel(
             each RF signal's result as soon as it completes. If given, an
             interrupted run can be restarted and will only recompute RF
             signals that are not yet in the checkpoint.
+        include_true_match (bool): Forwarded to compute_alignments() for
+            every RF signal. Defaults to True, i.e. unchanged closed-set
+            behavior. Set to False to build leave-one-out open-set
+            negatives instead, where every RF signal's own true AIS track
+            is excluded from its candidate pool entirely.
 
     Returns:
         pd.DataFrame: AIS-RF candidate pairs
@@ -271,7 +317,7 @@ def compute_AIS_RF_alignments_parallel(
         with ProcessPoolExecutor(
             max_workers=os.cpu_count(),
             initializer=_init_worker,
-            initargs=(AIS_metadata, distance_threshold, time_window_hours),
+            initargs=(AIS_metadata, distance_threshold, time_window_hours, include_true_match),
         ) as executor:
             futures = {
                 executor.submit(compute_alignments, RF_signal): (RF_signal["ID"], RF_signal["RF_signal_id"])
@@ -308,7 +354,60 @@ def compute_AIS_RF_alignments_parallel(
             ["RF_track_id", "RF_signal_id", "AIS_track_id"]
         ).reset_index(drop=True)
     return result_df, avg_time_per_iter
-                    
+
+
+def check_true_match_prefilter_recall(
+    df, distance_threshold=6, time_marge=timedelta(minutes=10), time_window_hours=3,
+):
+    """
+    Diagnostic-only: would each RF signal's true AIS track survive the
+    3-stage prefilter on its own merits, without the compute_alignments
+    bypass that force-includes it?
+
+    Does not affect the main pipeline in any way (compute_alignments and
+    compute_AIS_RF_alignments_parallel are untouched by this function) and
+    is meant to be run once to establish the prefilter recall ceiling —
+    the fraction of true matches that would survive prefiltering, which
+    upper-bounds end-to-end recall regardless of scoring method. Cheap
+    enough (one dict lookup and a 3-stage check per RF signal) to run
+    single-process, without the parallel/checkpointing machinery used for
+    the full RF-vs-every-AIS-track alignment.
+
+    Args:
+        df (pd.DataFrame): Dataset containing both AIS and RF data
+        distance_threshold (float): Same meaning as in compute_AIS_RF_alignments_parallel
+        time_marge (timedelta): Same meaning as in compute_AIS_RF_alignments_parallel
+        time_window_hours (int): Same meaning as in compute_AIS_RF_alignments_parallel
+
+    Returns:
+        pd.DataFrame: One row per RF signal, columns RF_signal_id,
+        RF_track_id, passed_prefilter (bool)
+    """
+    df_RF = df[df["RF"].notna()].copy()
+    df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1
+
+    df_grouped = df.groupby("ID")
+    metadata = make_AIS_metadata(df_grouped, distance_threshold, time_marge)
+
+    rows = []
+    for _, RF_signal in tqdm(
+        df_RF.iterrows(), total=len(df_RF), desc="Checking true-match prefilter recall",
+    ):
+        RF_track_id = RF_signal["ID"]
+        meta = metadata.get(RF_track_id)
+        passed = meta is not None and passes_prefilter_stages(
+            RF_signal["RF_Timestamp"], RF_signal["RF"], meta,
+            distance_threshold, time_window_hours,
+        )
+        rows.append({
+            "RF_signal_id": RF_signal["RF_signal_id"],
+            "RF_track_id": RF_track_id,
+            "passed_prefilter": passed,
+        })
+
+    return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Align AIS and RF data")
     parser.add_argument(
@@ -338,9 +437,17 @@ if __name__ == "__main__":
         df, checkpoint_path=CHECKPOINT_PATH
     )
     alignments_df.to_pickle(DESTINATION_PATH)
-    
+
     processing_time = datetime.now() - start_time
-    
+
     print("Data is saved to", DESTINATION_PATH)
     print(f"Processing took {processing_time} (hh:mm:ss.ms)")
     print(f"Average processing time per RF iteration took {avg_time_per_iter} seconds")
+
+    print("\nChecking true-match prefilter recall...")
+    diagnostic_df = check_true_match_prefilter_recall(df)
+    diagnostic_df.to_pickle(f"{DATA_DIR}/true_match_prefilter_diagnostic.pkl")
+    print(
+        "True prefilter recall:",
+        f"{diagnostic_df['passed_prefilter'].mean():.4f}",
+    )

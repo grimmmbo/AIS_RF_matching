@@ -6,10 +6,13 @@
 *.parquet
 !data/processed/AIS_RF_preselection_data.pkl
 
-# Python cache 
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 .venv/
+
+# Jupyter
+.ipynb_checkpoints/
