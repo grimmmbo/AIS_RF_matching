@@ -102,6 +102,7 @@ def clean_outputs(error_model: str, phase_dirs: list[str]) -> None:
         "AIS_RF_preselection_data.pkl",
         "AIS_RF_preselection_checkpoint.pkl",
         "true_match_prefilter_diagnostic.pkl",
+        "sibling_candidate_overlap_diagnostic.pkl",
         "AIS_RF_forward_scores_data.pkl",
         "AIS_RF_forward_scores_checkpoint.pkl",
         "AIS_RF_preselection_leaveoneout_data.pkl",

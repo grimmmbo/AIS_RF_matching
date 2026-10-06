@@ -401,6 +401,41 @@ def check_true_match_prefilter_recall(
     return pd.DataFrame(rows)
 
 
+def check_sibling_candidate_overlap(alignments_df):
+    """
+    Diagnostic-only: for how many RF signals does the candidate set
+    contain another segment of the true vessel besides the true
+    segment itself?
+
+    Segments of the same MMSI are split at time gaps (Step 3,
+    make_continuous_tracks.split_into_continuous_tracks) and are
+    disjoint in time, while passes_prefilter_stages() requires a
+    candidate to cover the RF timestamp -- so a sibling segment is
+    expected to rarely survive into the same candidate set as the true
+    segment. Checks that against the actual preselection output rather
+    than assuming it. Does not affect the main pipeline in any way.
+
+    Args:
+        alignments_df (pd.DataFrame): Output of
+            compute_AIS_RF_alignments_parallel, with columns
+            RF_signal_id, RF_track_id, AIS_track_id, is_true_match
+            (RF_track_id/AIS_track_id are (MMSI, segment_id) tuples)
+
+    Returns:
+        pd.DataFrame: One row per RF signal, columns RF_signal_id,
+        RF_track_id, has_sibling_candidate (bool)
+    """
+    df = alignments_df[["RF_signal_id", "RF_track_id", "AIS_track_id", "is_true_match"]].copy()
+    df["is_sibling_candidate"] = (
+        df["AIS_track_id"].apply(lambda t: t[0]) == df["RF_track_id"].apply(lambda t: t[0])
+    ) & ~df["is_true_match"]
+    return (
+        df.groupby(["RF_signal_id", "RF_track_id"])["is_sibling_candidate"]
+        .any()
+        .reset_index(name="has_sibling_candidate")
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Align AIS and RF data")
     parser.add_argument(
@@ -443,4 +478,12 @@ if __name__ == "__main__":
     print(
         "True prefilter recall:",
         f"{diagnostic_df['passed_prefilter'].mean():.4f}",
+    )
+
+    print("\nChecking sibling-candidate overlap (Step 3 segmentation diagnostic)...")
+    sibling_overlap_df = check_sibling_candidate_overlap(alignments_df)
+    sibling_overlap_df.to_pickle(f"{DATA_DIR}/sibling_candidate_overlap_diagnostic.pkl")
+    print(
+        "RF points with a sibling segment of the true vessel in their candidate set:",
+        f"{sibling_overlap_df['has_sibling_candidate'].mean():.4%}",
     )
