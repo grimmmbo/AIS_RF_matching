@@ -133,22 +133,14 @@ class AISState(State):
         return 1.0 if AIS_obs is not None else 0.0
 
     def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):
-        # Special case: 
-        # If the previous state is 'begin', 
-        # assign equal probability (1/3) of starting in AIS, RF, or M
         if prev_state == "begin":
+            # Equal 1/3 probability of starting in AIS, RF, or M
             return 1.0 / 3.0
-        
-        # General case: 
-        # If the previous state is not 'begin', 
-        # compute the set of transition probabilities from previous state into all possible next states
+
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        
-        # Normalize to ensure that these outgoing probabilities from previous state sum to 1
-        # From this normalized distribution, take the probability of moving specifically into the current state 'AIS'
         base_prob = normalize(transitions, self.name)
-        
-        # Smooth transition probabilities to AIS state  
+
+        # Smooth transition probabilities to AIS state
         exponent = 0.5
         return base_prob ** exponent
 
@@ -157,25 +149,15 @@ class AISState(State):
         return (1, 0)
 
     def get_predecessors(self, i, j):
+        # A predecessor state is any state that could plausibly precede
+        # AIS here: another AIS/RF/M step, or 'begin' at the origin
         predecessors = []
-        
-        # If there is at least one AIS observation available,
-        # the previous step could have been another 'AIS' state
         if i > 0 and j >= 0:
             predecessors.append("AIS")
-            
-        # If there is at least one RF observation available,
-        # an 'RF' state can also transition into AIS state
         if j > 0 and i >= 0:
             predecessors.append("RF")
-        
-        # If both AIS and RF indices are positive,
-        # a 'M' state could have led here as well
         if i > 0 and j > 0:
             predecessors.append("M")
-            
-        # Special case: At the origin of the matrix (0,0),
-        # the AIS state may also be reached directly from the 'begin' state
         if i == 0 and j == 0:
             predecessors.append("begin")
         return predecessors
@@ -190,49 +172,29 @@ class RFState(State):
         return 1.0 if RF_obs is not None else 0.0
 
     def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):
-        # Special case: 
-        # If the previous state is 'begin', 
-        # assign equal probability (1/3) of starting in AIS, RF, or M
         if prev_state == "begin":
+            # Equal 1/3 probability of starting in AIS, RF, or M
             return 1.0 / 3.0
-        
-        # General case: 
-        # If the previous state is not 'begin', 
-        # compute the set of transition probabilities from previous state into all possible next states
+
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        
-        # Normalize to ensure that these outgoing probabilities from previous state sum to 1
-        # From this normalized distribution, take the probability of moving specifically into the current state 'RF'
         base_prob = normalize(transitions, self.name)
-        
-        # Sharpens transitions probabilities to RF state 
+
+        # Sharpen transition probabilities to RF state
         exponent = 2
         return base_prob ** exponent
-            
+
     def Δ(self):
         # Consumes one RF observation
         return (0, 1)
 
     def get_predecessors(self, i, j):
         predecessors = []
-        
-        # If there is at least one RF observation available,
-        # an 'AIS' state can transition into RF state
         if i > 0 and j >= 0:
             predecessors.append("AIS")
-            
-        # If there is at least one RF observation available,
-        # the previous step could have been another 'RF' state
         if j > 0 and i >= 0:
             predecessors.append("RF")
-            
-        # If both AIS and RF indices are positive,
-        # a 'M' state could have led here as well
         if i > 0 and j > 0:
             predecessors.append("M")
-            
-        # Special case: At the origin of the matrix (0,0),
-        # the AIS state may also be reached directly from the 'begin' state
         if i == 0 and j == 0:
             predecessors.append("begin")
         return predecessors
@@ -247,22 +209,14 @@ class MState(State):
         return match_probability(*compute_abs_time_and_distance(AIS_obs, RF_obs))
 
     def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):
-        # Special case: 
-        # If the previous state is 'begin', 
-        # assign equal probability (1/3) of starting in AIS, RF, or M
         if prev_state == "begin":
+            # Equal 1/3 probability of starting in AIS, RF, or M
             return 1.0 / 3.0
-        
-        # General case: 
-        # If the previous state is not 'begin', 
-        # compute the set of transition probabilities from previous state into all possible next states
+
         transitions = get_transition_dict(prev_state, prev_i, prev_j, AIS_seq, RF_seq)
-        
-        # Normalize to ensure that these outgoing probabilities from previous state sum to 1
-        # From this normalized distribution, take the probability of moving specifically into the current state 'M'
         base_prob = normalize(transitions, self.name)
-        
-        # Sharpens transitions probabilities to M state 
+
+        # Sharpen transition probabilities to M state
         exponent = 2
         return base_prob ** exponent
 
@@ -272,24 +226,12 @@ class MState(State):
 
     def get_predecessors(self, i, j):
         predecessors = []
-        
-        # If there is an AIS observation available,
-        # an 'AIS' state can transition into Match
         if i > 0 and j >= 0:
             predecessors.append("AIS")
-            
-        # If there is an RF observation available,
-        # an 'RF' state can transition into Match
         if j > 0 and i >= 0:
             predecessors.append("RF")
-            
-        # If both AIS and RF indices are positive,
-        # a previous Match state could also lead here
         if i > 0 and j > 0:
             predecessors.append("M")
-        
-        # Special case: At the origin of the matrix (0,0),
-        # the Match state may also be reached directly from 'begin'
         if i == 0 and j == 0:
             predecessors.append("begin")
         return predecessors
@@ -315,20 +257,13 @@ class EndState(State):
         return (0, 0)
 
     def get_predecessors(self, i, j):
+        # Any state is a valid predecessor once it has consumed its
+        # corresponding observation(s)
         predecessors = []
-        
-        # If AIS observations have been consumed,
-        # AIS state can transition into End
         if i > 0:
             predecessors.append("AIS")
-            
-        # If RF observations have been consumed,
-        # RF state can transition into End
         if j > 0:
             predecessors.append("RF")
-            
-        # If both AIS and RF have been consumed,
-        # Match state can also transition into End
         if i > 0 and j > 0:
             predecessors.append("M")
         return predecessors

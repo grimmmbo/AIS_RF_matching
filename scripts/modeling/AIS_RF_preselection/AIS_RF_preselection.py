@@ -67,19 +67,16 @@ def passes_prefilter_stages(RF_datetime, RF_coordinates, meta, distance_threshol
     Returns:
         bool: True if the RF observation survives all 3 stages
     """
-    # (1) Time-range prefilter:
-        # Fail early if RF timestamp lies outside the (min_time, max_time) of the AIS track
+    # (1) time range: fail if the RF timestamp is outside the track's span
     if not (meta["min_time"] <= RF_datetime <= meta["max_time"]):
         return False
 
-    # (2) Bounding box check:
-        # Fail if RF point lies outside the expanded lat/lon bounding box of this track
+    # (2) bounding box: fail if the RF point is outside the track's box
     if not (meta["min_lat"] <= RF_coordinates[0] <= meta["max_lat"] and
             meta["min_lon"] <= RF_coordinates[1] <= meta["max_lon"]):
         return False
 
-    # (3) Precise spatial check within configurable time window:
-        # Fail if no AIS points fall within the time window and the distance threshold of the RF point
+    # (3) precise distance: fail if no AIS point is within threshold+window
     RF_time = np.datetime64(RF_datetime)
     time_window = np.timedelta64(time_window_hours, 'h')
     mask = np.abs(meta["times"] - RF_time) <= time_window
@@ -110,13 +107,11 @@ def compute_alignments(
         metadata (dict, optional): Pre-computed per-track metadata
         time_window_hours (int, optional): Temporal window size in hours for filtering AIS points around the RF timestamp. Defaults to 3
         include_true_match (bool, optional): If True (default), the RF
-            signal's own true AIS track is always force-included as a
-            candidate, bypassing all 3 prefilter stages — this is the
-            existing closed-set evaluation behavior. If False, the true
-            track is excluded from the candidate pool entirely instead
-            (never evaluated, never emitted as a candidate) — used to
-            build leave-one-out open-set negatives, where the true track
-            must be genuinely absent rather than merely not force-included.
+            signal's own true AIS track is force-included as a
+            candidate, bypassing the prefilter (closed-set behavior).
+            If False, the true track is excluded entirely -- never
+            evaluated, never emitted -- used to build leave-one-out
+            open-set negatives.
 
     Returns:
         list: Candidate list
@@ -183,16 +178,14 @@ def make_AIS_metadata(df_grouped, distance_threshold, time_marge):
     """
     meta = {}
     for track_id, group in df_grouped:
-        # Collect valid AIS coordinates for this track
         coords = [coord for coord in group["AIS"] if coord is not None]
         if not coords:
             continue
-        
-        # Collect valid timestamps
+
         times = [timestamp for timestamp in group["AIS_Timestamp"] if not pd.isnull(timestamp)]
         if not times:
             continue
-        
+
         # Compute raw bounding box
         lats = [c[0] for c in coords]
         lons = [c[1] for c in coords]
@@ -411,8 +404,8 @@ def check_true_match_prefilter_recall(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Align AIS and RF data")
     parser.add_argument(
-        "--error-model", choices=["uniform", "gaussian"], default="uniform",
-        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+        "--error-model", choices=["uniform", "gaussian"], default="gaussian",
+        help="RF bearing-error model whose data folder to read from and write to (default: gaussian)",
     )
     args = parser.parse_args()
 

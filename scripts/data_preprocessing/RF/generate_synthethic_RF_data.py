@@ -68,7 +68,7 @@ def generate_error_distance_and_bearing(timestamps, mean_distance = 2000, std_de
         for timestamp in timestamps
     }
 
-def generate_gaussian_error_offset(sigma=2000):
+def generate_gaussian_error_offset(sigma=800):
     """
     Samples an isotropic 2D Gaussian position error: N(0, sigma) on each axis
 
@@ -82,7 +82,7 @@ def generate_gaussian_error_offset(sigma=2000):
 
     Args:
         sigma (float): Standard deviation (meters) of the position error's
-            east/north components. Defaults to 2000
+            east/north components. Defaults to 800
 
     Returns:
         tuple: (error_distance in meters, bearing in degrees, compass convention)
@@ -156,7 +156,7 @@ def get_RF_times_for_AIS_seq(RF_timestamps, AIS_seq, time_margin):
     ])
     
 def generate_training_data(
-    df, time_margin=5, error_model="uniform", error_bearing=60, sigma=2000,
+    df, time_margin=5, error_model="uniform", error_bearing=60, sigma=800,
 ):
     """
     Generates labeled training data by combining AIS trajectories with simulated RF signal observations
@@ -173,10 +173,10 @@ def generate_training_data(
          - Add "begin" and "end" markers to each sequence
 
     Note:
-    For the scope of this study, such detailed labeling is not strictly required,
-    since we only compare a single RF signal to an entire AIS trajectory
-    However, the richer labeling scheme makes the dataset reusable for more advanced sequence alignment
-    or decoding (e.g., Viterbi) tasks in future work
+    This study only compares a single RF signal to an entire AIS
+    trajectory, so such detailed labeling isn't strictly required --
+    it's kept because it makes the dataset reusable for more advanced
+    sequence alignment/decoding (e.g. Viterbi) later
 
     Args:
         df (pd.DataFrame): AIS data
@@ -186,7 +186,7 @@ def generate_training_data(
         error_bearing (float): Maximum angular deviation (degrees) applied uniformly to
             the vessel heading. Only used when error_model="uniform". Defaults to 60 (i.e. ±60°)
         sigma (float): Standard deviation (meters) of the isotropic Normal(0, sigma)
-            position error. Only used when error_model="gaussian". Defaults to 2000
+            position error. Only used when error_model="gaussian". Defaults to 800
 
     Returns:
         pd.DataFrame: Labeled sequence data

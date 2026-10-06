@@ -1,0 +1,234 @@
+"""
+Open-set (accept/reject) evaluation: can the pipeline recognize an RF
+point with no true AIS match, instead of always force-picking a
+candidate? run_phase4_evaluation.py / run_phase4b_baseline_comparison.py
+stay closed-set only (true track always included); this script reuses
+their prefilter/scoring functions without that bypass.
+
+Steps:
+  2a. Diagnostic: would the true AIS track survive prefiltering alone?
+  2b. Dark-vessel negatives (primary test): vessels are split into a
+      registry pool (searchable) and a dark pool (queried, but never
+      searchable by anyone). Built by filtering the closed-set data --
+      see open_set.build_dark_vessel_frame for why that's equivalent
+      to a fresh registry-only alignment run.
+  2c. Leave-one-out negatives (secondary): each RF point's own true
+      track is excluded from its own candidate pool and the pipeline
+      rerun (scripts/modeling/AIS_RF_open_set/AIS_RF_leave_one_out.py).
+      Skipped with a warning if that hasn't been run for this
+      --error-model.
+  2d. ROC/PR/AUC for both negative constructions, split into
+      "automatic rejection" (no candidate survived the prefilter) vs.
+      "scored rejection" (1+ candidates survived, scoring model judged
+      none confident enough). Reported as full ROC/AUC, no tuned
+      threshold -- see open_set.py.
+
+See notebooks/06_open_set_evaluation.ipynb for the interactive,
+plot-only version of this script.
+"""
+import argparse
+from pathlib import Path
+
+import pandas as pd
+
+from scripts.evaluation import generate_plots
+from scripts.evaluation.open_set import (
+    MODELS,
+    build_dark_vessel_frame,
+    build_open_set_frame,
+    compute_pr,
+    compute_roc,
+    load_closed_results,
+    load_loo_results,
+    split_registry_dark_vessels,
+)
+
+
+def diagnostic_prefilter_recall(data_dir: str) -> pd.DataFrame:
+    df_true_match_diagnostic = pd.read_pickle(f"{data_dir}/true_match_prefilter_diagnostic.pkl")
+    true_prefilter_recall = df_true_match_diagnostic["passed_prefilter"].mean()
+    print(f"True prefilter recall: {true_prefilter_recall:.4f}")
+    print(
+        f"({df_true_match_diagnostic['passed_prefilter'].sum()} / "
+        f"{len(df_true_match_diagnostic)} true tracks would pass stages 1-3 unaided)"
+    )
+    print(df_true_match_diagnostic["passed_prefilter"].value_counts())
+    return df_true_match_diagnostic
+
+
+def rejection_type_summary(n_universe: int, n_scored_rejections: int, label: str) -> dict:
+    n_automatic_rejections = n_universe - n_scored_rejections
+    print(f"Total RF points (universe): {n_universe}")
+    print(f"Automatic rejections -- zero candidates survived the {label} prefilter, "
+          f"no scoring model needed: {n_automatic_rejections} ({n_automatic_rejections / n_universe:.2%})")
+    print(f"Scored rejections -- 1+ candidates survived, the scoring model had to judge none "
+          f"confident enough: {n_scored_rejections} ({n_scored_rejections / n_universe:.2%})")
+    return {
+        "n_universe": n_universe,
+        "n_automatic_rejections": n_automatic_rejections,
+        "n_scored_rejections": n_scored_rejections,
+    }
+
+
+def open_set_report(
+    frames: dict[str, pd.DataFrame], models, rej_summary: dict, table_dir: Path, slug: str, plot_data: dict,
+) -> pd.DataFrame:
+    """
+    Compute + save the ROC/PR/AUC tables for one negative-class
+    construction (dark-vessel or leave-one-out), and stash the curves
+    into plot_data for generate_plots.phase4c_open_set_evaluation to
+    draw later (titles/labels live there, not here)
+
+    Reports AUC (the full ROC curve, i.e. every possible accept/reject
+    threshold at once) rather than picking one operating threshold --
+    no threshold is tuned anywhere in this script. AUC is reported both
+    over every negative (including the automatic rejections, which
+    inflate it since they're trivial) and restricted to scored
+    rejections only, which is the harder, more informative number.
+    """
+    overall_curves = {
+        name: {**compute_roc(frames[name], "accept_score"), **compute_pr(frames[name], "accept_score")}
+        for name, *_ in models
+    }
+    roc_curve_overall = pd.concat([
+        pd.DataFrame({"model": name, "fpr": c["fpr"], "tpr": c["tpr"]}) for name, c in overall_curves.items()
+    ], ignore_index=True)
+    roc_curve_overall.to_csv(table_dir / f"roc_curve_overall_{slug}.csv", index=False)
+    plot_data[f"roc_curve_overall_{slug}"] = roc_curve_overall
+
+    pr_curve_overall = pd.concat([
+        pd.DataFrame({"model": name, "recall": c["recall"], "precision": c["precision"]})
+        for name, c in overall_curves.items()
+    ], ignore_index=True)
+    pr_curve_overall.to_csv(table_dir / f"pr_curve_overall_{slug}.csv", index=False)
+    plot_data[f"pr_curve_overall_{slug}"] = pr_curve_overall
+
+    auc_rows = [
+        {"model": name, "auc_overall_raw": c["roc_auc"], "ap_overall_raw": c["ap"]}
+        for name, c in overall_curves.items()
+    ]
+
+    scored_only_curves = {
+        name: compute_roc(frames[name][frames[name]["rejection_type"] != "automatic_rejection"], "accept_score")
+        for name, *_ in models
+    }
+    roc_curve_scored_only = pd.concat([
+        pd.DataFrame({"model": name, "fpr": c["fpr"], "tpr": c["tpr"]}) for name, c in scored_only_curves.items()
+    ], ignore_index=True)
+    roc_curve_scored_only.to_csv(table_dir / f"roc_curve_scored_only_{slug}.csv", index=False)
+    plot_data[f"roc_curve_scored_only_{slug}"] = roc_curve_scored_only
+
+    scored_only_auc_rows = [{"model": name, "auc_scored_only_raw": c["roc_auc"]} for name, c in scored_only_curves.items()]
+
+    summary = pd.DataFrame(auc_rows).merge(pd.DataFrame(scored_only_auc_rows), on="model")
+    summary["automatic_rejection_rate"] = rej_summary["n_automatic_rejections"] / rej_summary["n_universe"]
+    summary = summary[[
+        "model", "automatic_rejection_rate",
+        "auc_overall_raw", "auc_scored_only_raw",
+        "ap_overall_raw",
+    ]]
+    print(summary)
+    summary.to_csv(table_dir / f"open_set_summary_{slug}.csv", index=False)
+    plot_data[f"open_set_summary_{slug}"] = summary
+    return summary
+
+
+def combined_summary_from_frames(frames: dict[str, pd.DataFrame], open_set_summary: pd.DataFrame) -> pd.DataFrame:
+    """Recall@1/MRR (from each frame's own positive rows) alongside its open-set AUC summary"""
+    rows = []
+    for name, frame in frames.items():
+        positives = frame[frame["rejection_type"] == "positive"]
+        rows.append({
+            "model": name,
+            "recall@1": positives["hit@1"].mean(),
+            "mrr": positives["reciprocal_rank"].mean(),
+        })
+    return pd.DataFrame(rows).merge(open_set_summary, on="model")
+
+
+def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
+    plot_data = {}
+    df_preselection = pd.read_pickle(f"{data_dir}/AIS_RF_preselection_data.pkl")
+    closed_results = load_closed_results(data_dir)
+
+    print("=== 2a: true prefilter recall (diagnostic) ===")
+    diagnostic_prefilter_recall(data_dir)
+
+    print("\n=== 2b: dark-vessel negatives (primary open-set test) ===")
+    vessel_ids = pd.concat([df_preselection["RF_track_id"], df_preselection["AIS_track_id"]]).unique()
+    registry_ids, dark_ids = split_registry_dark_vessels(vessel_ids)
+    print(f"Vessel universe: {len(vessel_ids)}; registry: {len(registry_ids)}; dark (held out): {len(dark_ids)}")
+
+    dark_vessel_frames = {
+        name: build_dark_vessel_frame(name, df_preselection, closed_results, registry_ids, dark_ids, score_col, mode)
+        for name, _, _, score_col, mode in MODELS
+    }
+    n_dark_universe = df_preselection[df_preselection["RF_track_id"].isin(dark_ids)][
+        ["RF_signal_id", "RF_track_id"]
+    ].drop_duplicates().shape[0]
+    # The prefilter runs once in AIS_RF_preselection.py, before any
+    # scoring, so automatic-vs-scored is identical across models --
+    # compute it once from PHMM Forward's frame, not from all five.
+    reference_frame = dark_vessel_frames[MODELS[0][0]]
+    n_dark_scored_rejections = (reference_frame["rejection_type"] == "scored_rejection").sum()
+    dark_rej_summary = rejection_type_summary(n_dark_universe, n_dark_scored_rejections, "dark-vessel")
+
+    print("\n--- Dark-vessel rejection metrics ---")
+    dark_open_set_summary = open_set_report(
+        dark_vessel_frames, MODELS, dark_rej_summary, table_dir, slug="darkvessel", plot_data=plot_data,
+    )
+
+    print("\n=== Combined closed-set + open-set summary (dark-vessel, primary) ===")
+    combined_dark = combined_summary_from_frames(dark_vessel_frames, dark_open_set_summary)
+    print(combined_dark)
+    combined_dark.to_csv(table_dir / "combined_phase1_phase2_summary_darkvessel.csv", index=False)
+
+    print("\n=== 2c: leave-one-out negatives (secondary) ===")
+    have_loo_data = True
+    try:
+        df_preselection_loo = pd.read_pickle(f"{data_dir}/AIS_RF_preselection_leaveoneout_data.pkl")
+        loo_results = load_loo_results(data_dir)
+    except FileNotFoundError as exc:
+        print(f"Skipped -- leave-one-out data not found for this error model ({exc.filename}).")
+        print("Run scripts/modeling/AIS_RF_open_set/AIS_RF_leave_one_out.py for this --error-model first.")
+        have_loo_data = False
+
+    if have_loo_data:
+        rf_universe = df_preselection[["RF_signal_id", "RF_track_id"]].drop_duplicates()
+        loo_surviving = df_preselection_loo[["RF_signal_id", "RF_track_id"]].drop_duplicates()
+        loo_rej_summary = rejection_type_summary(len(rf_universe), len(loo_surviving), "leave-one-out")
+
+        print("\n--- Leave-one-out rejection metrics ---")
+        loo_frames = {
+            name: build_open_set_frame(
+                name, df_preselection, df_preselection_loo, closed_results, loo_results, score_col, mode
+            )
+            for name, _, _, score_col, mode in MODELS
+        }
+        loo_open_set_summary = open_set_report(
+            loo_frames, MODELS, loo_rej_summary, table_dir, slug="leaveoneout", plot_data=plot_data,
+        )
+
+        print("\n=== Combined closed-set + open-set summary (leave-one-out, secondary) ===")
+        combined_loo = combined_summary_from_frames(loo_frames, loo_open_set_summary)
+        print(combined_loo)
+        combined_loo.to_csv(table_dir / "combined_phase1_phase2_summary_leaveoneout.csv", index=False)
+
+    generate_plots.phase4c_open_set_evaluation(plot_data, fig_dir)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Open-set (accept/reject) evaluation")
+    parser.add_argument(
+        "--error-model", choices=["uniform", "gaussian"], default="gaussian",
+        help="RF bearing-error model whose data folder to read from (default: gaussian)",
+    )
+    args = parser.parse_args()
+
+    DATA_DIR = "./data/processed" if args.error_model == "uniform" else f"./data/processed/{args.error_model}"
+    FIG_DIR = Path(f"reports/figures/phase4c_open_set_evaluation/{args.error_model}")
+    TABLE_DIR = Path(f"reports/tables/phase4c_open_set_evaluation/{args.error_model}")
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    TABLE_DIR.mkdir(parents=True, exist_ok=True)
+
+    main(DATA_DIR, FIG_DIR, TABLE_DIR)

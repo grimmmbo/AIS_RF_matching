@@ -36,7 +36,6 @@ class PHMM_forward:
         Returns:
             float: Log-probability of the full alignment (sum over all possible paths).
         """
-        # Store sequences and sizes 
         self.AIS_seq = AIS_seq
         self.RF_seq = RF_seq # Consisting of one RF signal/observation in this study
         self.num_AIS = len(AIS_seq) + 1
@@ -57,28 +56,22 @@ class PHMM_forward:
     
     def compute_normalized_match_emissions(self):
         """
-        Given, one RF signal, 
-        this function produces a normalized probability distribution (summing to one) over all AIS observations, 
-        representing how likely each AIS is to match the RF 
-        """   
+        Normalized probability distribution over all AIS observations
+        (summing to one), representing how likely each is to match the
+        RF signal
+        """
         match_state = next((s for s in self.states if s.name == "M"), None)
         if not match_state:
             raise ValueError("Match state (M) not found")
 
-        # Make empty emission matrix E
-        E = np.zeros((self.num_AIS, self.num_RF))  # inclusief index 0 (dummy)
-        
-        # Fill matrix E with raw emission probabilities
-        for i in range(1, self.num_AIS):  
+        E = np.zeros((self.num_AIS, self.num_RF))  # includes dummy index 0
+
+        for i in range(1, self.num_AIS):
             for j in range(1, self.num_RF):
-                
-                # Subtract 1 to get the correct position in AIS_seq and RF_seq
                 obs = (self.AIS_seq[i - 1], self.RF_seq[j - 1])
-                
-                # Get emission probability
                 E[i, j] = match_state.emission(obs)
-        
-        # Normalize the emission probabilities
+
+        # Normalize each column so match probabilities sum to 1
         column_sums = E.sum(axis=0, keepdims=True) + 1e-300
         E = E / column_sums  
         return E        

@@ -38,14 +38,11 @@ def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items):
     results = []
 
     for RF_signal_id, RF_track_id, RF_seq in RF_items:
-        # Define the PHMM states used for alignment
         states = [BeginState(), AISState(), RFState(), MState(), EndState()]
         forward_model = PHMM_forward(states, EndState())
-
-        # Run the forward algorithm to compute the raw alignment score
         forward_score = forward_model.forward(AIS_seq, RF_seq)
 
-        # Normalize the score to account for AIS sequence length
+        # Normalize by AIS sequence length so longer tracks aren't favored
         adjusted_score = forward_score / len(AIS_seq)
 
         results.append({
@@ -142,14 +139,12 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
     Returns:
         pd.DataFrame: Forward scores per AIS-RF pair
     """
-    # Extract all RF observations (rows where RF coords are present)
     df_RF = df_train[df_train["RF"].notna()].copy()
 
-    # Give each RF signal a sequential identifier within its track
-    # Added because this study evaluates alignments per individual RF signal, rather than per full RF sequence
+    # Each RF signal is aligned individually, not as a full RF sequence,
+    # so give each one a sequential id within its track
     df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1
 
-    # Build fast lookup dictionaries for AIS and RF data
     ais_dict = {track_id: group for track_id, group in df_train.groupby("ID")}
     rf_dict = {(row["ID"], row["RF_signal_id"]): row for _, row in df_RF.iterrows()}
 
@@ -164,12 +159,10 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
             if rf_row is None or ais_data is None:
                 continue
 
-            # Extract RF signal as a sequence (single timestamp-coordinate pair)
             RF_seq = [(rf_row["RF_Timestamp"], rf_row["RF"])]
             item = (row.RF_signal_id, row.RF_track_id, RF_seq)
 
             if row.AIS_track_id not in chunks:
-                # Extract AIS sequence (list of timestamp-coordinate pairs)
                 AIS_seq = [
                     (dt, coord) for dt, coord in zip(ais_data["AIS_Timestamp"], ais_data["AIS"])
                     if pd.notna(dt) and coord is not None
@@ -230,7 +223,6 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
         if checkpoint_file is not None:
             checkpoint_file.close()
 
-    # Flatten the nested lists and return a dataframe
     flatten_results = [item for result in done_results.values() for item in result]
 
     avg_time_per_iter = np.array(times).mean()
@@ -241,8 +233,8 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Calculate Forward score for AIS-RF pairs")
     parser.add_argument(
-        "--error-model", choices=["uniform", "gaussian"], default="uniform",
-        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+        "--error-model", choices=["uniform", "gaussian"], default="gaussian",
+        help="RF bearing-error model whose data folder to read from and write to (default: gaussian)",
     )
     args = parser.parse_args()
 

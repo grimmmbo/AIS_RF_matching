@@ -28,7 +28,6 @@ class PHMM_viterbi:
                 Most likely state path as a list of state names
                 Final path probability
         """
-        # Store sequences and sizes 
         self.AIS_seq = AIS_seq
         self.RF_seq = RF_seq
         self.num_AIS = len(AIS_seq) + 1
@@ -40,13 +39,13 @@ class PHMM_viterbi:
         self.γ = np.full((self.num_states, self.num_AIS, self.num_RF), -np.inf)
         self.π = np.full((self.num_states, self.num_AIS, self.num_RF), -1)
         
-        # Run forward pass (dynamic programming)        
+        # Run forward pass (dynamic programming)
         self._induction()
-        
+
         # Handle final transition into end state
-        self._handle_end_state() 
-        
-        # Handle final transition into end state
+        self._handle_end_state()
+
+        # Backtrack to reconstruct the most likely path
         return self._backtracking()
     
     def _induction(self):
@@ -111,8 +110,9 @@ class PHMM_viterbi:
                     
     def _handle_end_state(self):
         """
-        Finalizes the Viterbi matrix by computing the highest-probability transition into the end state from any valid predecessor state
-        This is done by multiplying each predecessor's probability at the final cell with the transition probability to the end state, and selecting the maximum result
+        Finalizes the Viterbi matrix: for each valid predecessor state,
+        combine its probability at the final cell with the transition
+        probability into 'end', and keep the maximum
         """
         end_i = len(self.AIS_seq)
         end_j = len(self.RF_seq)
@@ -153,7 +153,6 @@ class PHMM_viterbi:
         final_state = self.π[self.end_state.id, i, j]
         curr_state = self.states[final_state]
 
-        # Start at the end state
         path = ["end", curr_state.name]
         log_probs = [final_prob, self.γ[curr_state.id, i, j]]
 

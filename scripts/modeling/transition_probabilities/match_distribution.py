@@ -27,7 +27,6 @@ def match_probability(diff_time_sec, diff_dist_km, max_time=120, max_dist=2.0):
     amp_penalty = (0.6, 0.6)
     sigma = (6, 10, 15)
 
-    # Tuning parameters for shaping the surface
     x_norm = diff_time_sec / max_time
     y_norm = diff_dist_km / max_dist
 

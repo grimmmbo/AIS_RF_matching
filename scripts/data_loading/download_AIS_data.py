@@ -1,19 +1,12 @@
 """Download NOAA AIS vessel-position data for a date range into one pickle.
 
 Each day is downloaded and cached to disk as soon as it is fetched, so
-an interrupted run can simply be restarted: already-cached days are
-skipped and only the missing ones are re-downloaded.
+an interrupted run can be restarted without re-downloading cached days.
 
-The output file is written by appending each cached day's DataFrame to
-it with a separate ``pickle.dump`` call, rather than concatenating
-every day into one big DataFrame first. That combine-then-write step
-is what used to exhaust memory: holding the whole date range twice
-over (once as separate day frames, once again as the concatenated
-whole) before it could even be written out. Appending day by day means
-at most one day's data is in memory at a time.
-
-Because of this, ``output_file`` holds a *sequence* of pickled
-DataFrames rather than a single one. Read it back with a loop:
+``output_file`` holds a sequence of pickled per-day DataFrames (each
+appended with its own ``pickle.dump`` call), not one combined
+DataFrame -- concatenating everything before writing doubled memory
+use and exhausted it on the full date range. Read it back with a loop:
 
     with open(output_file, "rb") as f:
         while True:
@@ -22,8 +15,6 @@ DataFrames rather than a single one. Read it back with a loop:
             except EOFError:
                 break
             ...
-
-instead of a single ``pickle.load`` / ``pd.read_pickle`` call.
 """
 
 import logging
@@ -132,15 +123,10 @@ def download_AIS_data(
 ) -> None:
     """Download daily AIS data and append it into a single pickle file.
 
-    Every day in the range is downloaded and cached to
+    Each day is cached to
     ``<output_file's directory>/.<output stem>_cache/<YYYY_MM_DD>.pkl``
-    as soon as it is fetched. Once all days are present on disk, each
-    is appended to ``output_file`` with its own ``pickle.dump`` call,
-    so at most one day's data needs to be in memory at a time. See the
-    module docstring for how to read the result back.
-
-    Re-running this function after a crash or interruption resumes
-    from the cache instead of re-downloading everything.
+    as it's fetched; a re-run after a crash resumes from the cache. See
+    the module docstring for the output format and how to read it back.
 
     Args:
         start_date: Start date of the data download.

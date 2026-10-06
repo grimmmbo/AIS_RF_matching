@@ -1,22 +1,17 @@
 """
-Build Phase 2 open-set "leave-one-out" negatives
-
-For every RF signal, its own true AIS track is excluded from the
-candidate pool entirely (compute_AIS_RF_alignments_parallel with
-include_true_match=False skips it before any prefilter stage runs,
-rather than merely not force-including it), then the unbypassed
-3-stage prefilter and every scoring method are rerun on whatever
-candidates remain.
+Build leave-one-out open-set negatives: rerun the unbypassed prefilter
+and every scoring method with each RF signal's own true AIS track
+excluded from its candidate pool
+(compute_AIS_RF_alignments_parallel(include_true_match=False) drops it
+before the prefilter runs, not just from a forced include).
 
 RF signals with zero surviving candidates never appear in any output
-here — they are Tier 1 (free-signal) correct rejections, identified in
-the open-set evaluation notebook by diffing against the full RF-signal
-universe (df_preselection from Phase 1). RF signals with >=1 surviving
-candidate are scored here and become Tier 2 false-match samples once
-ranked in that same notebook.
+here -- scripts/evaluation/open_set.py treats them as
+"automatic_rejection" rows. RF signals with >=1 surviving candidate
+are scored here and become that module's "scored_rejection" rows.
 
 All outputs are suffixed "_leaveoneout" and never overwrite the
-closed-set Phase 1 files (AIS_RF_preselection_data.pkl,
+closed-set files (AIS_RF_preselection_data.pkl,
 AIS_RF_forward_scores_data.pkl, AIS_RF_nn_baseline_*_scores_data.pkl),
 which this script does not read or modify.
 """
@@ -39,14 +34,14 @@ from scripts.modeling.AIS_RF_alignment.AIS_RF_nn_baseline import (
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Build Phase 2 leave-one-out open-set negatives: unbypassed "
+            "Build leave-one-out open-set negatives: unbypassed "
             "prefilter + scoring with each RF signal's true AIS track "
             "excluded from its own candidate pool"
         )
     )
     parser.add_argument(
-        "--error-model", choices=["uniform", "gaussian"], default="uniform",
-        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+        "--error-model", choices=["uniform", "gaussian"], default="gaussian",
+        help="RF bearing-error model whose data folder to read from and write to (default: gaussian)",
     )
     args = parser.parse_args()
 

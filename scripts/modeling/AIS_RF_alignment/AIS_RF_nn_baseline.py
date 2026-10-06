@@ -366,13 +366,9 @@ def _compute_score_parallel(df_train, df_preselection, chunk_fn, checkpoint_path
     Returns:
         tuple: (pd.DataFrame of distances per AIS-RF pair, average seconds per AIS track chunk)
     """
-    # Extract all RF observations (rows where RF coords are present)
     df_RF = df_train[df_train["RF"].notna()].copy()
-
-    # Give each RF signal a sequential identifier within its track
     df_RF["RF_signal_id"] = df_RF.groupby("ID").cumcount() + 1
 
-    # Build fast lookup dictionaries for AIS and RF data
     ais_dict = {track_id: group for track_id, group in df_train.groupby("ID")}
     rf_dict = {(row["ID"], row["RF_signal_id"]): row for _, row in df_RF.iterrows()}
 
@@ -446,7 +442,6 @@ def _compute_score_parallel(df_train, df_preselection, chunk_fn, checkpoint_path
         if checkpoint_file is not None:
             checkpoint_file.close()
 
-    # Flatten the nested lists and return a dataframe
     flatten_results = [item for result in done_results.values() for item in result]
 
     avg_time_per_iter = np.array(times).mean()
@@ -551,8 +546,8 @@ MODELS = {
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Calculate nearest-neighbor baseline scores for AIS-RF pairs")
     parser.add_argument(
-        "--error-model", choices=["uniform", "gaussian"], default="uniform",
-        help="RF bearing-error model whose data folder to read from and write to (default: uniform)",
+        "--error-model", choices=["uniform", "gaussian"], default="gaussian",
+        help="RF bearing-error model whose data folder to read from and write to (default: gaussian)",
     )
     args = parser.parse_args()
 
