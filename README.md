@@ -62,7 +62,8 @@ Each evaluation script prints a one-line summary and writes a small set of resul
 |---|---|
 | Table II, RF detections (17,081 full, 10,903 single-candidate, 6,178 multi-candidate, Forward alpha=1 precision) | `phase4_evaluation/stratified_ranking.csv` (`recall@1`) |
 | Table II, tuning split (1,236, precision 0.7921) and validation split (4,942) | `phase4_evaluation/alpha_search.csv`, `phase4b_baseline_comparison/ranking_metrics.csv` (`n_points`) |
-| Table II, trajectories (3,203, 1,022 MMSIs, known/dark split, 3,330 dark detections) | `phase4c_open_set_evaluation/diagnostics.csv` |
+| Table II, dark-vessel test (MMSIs, trajectories, known 13,751 and dark 3,330 detections, 2,346 rejected by the prefilter) | `phase4c_open_set_evaluation/diagnostics.csv` |
+| RF detections per sampled trajectory (3.42 = 17,081 / 5,000) | `phase4_evaluation/diagnostics.csv` |
 | Recall@3/@5 | `phase4b_baseline_comparison/ranking_metrics.csv` (population `multimatch`) |
 | 203 tied signals (raw log-odds, validation split) | `phase4_evaluation/diagnostics.csv` |
 | Table III, bias tests 1-4 | `phase4c_bias_experiments/bias_experiments_summary.csv` (log-odds column is the n^alpha variant) |

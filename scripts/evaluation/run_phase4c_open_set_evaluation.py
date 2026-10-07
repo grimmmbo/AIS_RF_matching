@@ -218,6 +218,7 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
     dark_rej_summary = rejection_type_summary(n_dark_universe, n_dark_scored_rejections)
 
     diagnostics += [("dark-vessel rejections", k, v) for k, v in dark_rej_summary.items()]
+    diagnostics.append(("dark-vessel split", "known detections (positives)", (reference_frame["rejection_type"] == "positive").sum()))
     dark_open_set_summary = open_set_report(
         dark_vessel_frames, dark_models, dark_rej_summary, table_dir, slug="darkvessel", plot_data=plot_data,
     )

@@ -110,7 +110,9 @@ def preselection_overview(data: dict, diagnostics: Diagnostics) -> tuple[pd.Data
 
     avg_candidates = df_preselection_multimatch.groupby(GROUP_COLS)["AIS_track_id"].nunique().mean()
     diagnostics += [
+        ("preselection", "sampled AIS trajectories", len(data["AIS_stats"])),
         ("preselection", "RF signals", n_total_rf),
+        ("preselection", "RF signals per sampled AIS trajectory", n_total_rf / len(data["AIS_stats"])),
         ("preselection", "RF signals with several candidates", n_multimatch_rf),
         ("preselection", "RF signals with only their own track", n_singlematch_rf),
         ("preselection", "percent of RF signals filtered out", pct_filtered_out),
