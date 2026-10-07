@@ -6,23 +6,53 @@ Maritime transport carries around 90% of global trade but faces congestion, safe
 
 ## Reproducing results
 
-All published results use the **gaussian** RF error model. Setup (uv, Python 3.11) is described in [Setup and data](#setup-and-data).
+All published results use the **gaussian** RF error model. The steps below start from nothing and end with every table and figure of the paper. The AIS download and the Forward scoring are the long steps.
+
+**1. Install `uv`** (https://docs.astral.sh/uv/). It manages the environment. The Python version is pinned in `.python-version` (3.11).
 
 ```bash
-# 1) Environment
-uv sync --frozen
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2) Base data (once): download AIS, filter cargo vessels, run
-#    notebooks/02_data_preparation.ipynb  (details below)
-
-# 3) Everything the paper reports, gaussian model (long, the Forward scoring dominates)
-uv run python -m scripts.run_pipeline
-
-# 4) Redraw figures only, after changing plotting code
-uv run python -m scripts.run_pipeline --plots-only
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-`run_pipeline` runs preselection, the PHMM Forward scores (including the extra pass with kappa=(1,1) for the ablation), the four nearest-neighbor baselines, and all evaluation scripts. Results land in `reports/tables/<phase>/gaussian/` and `reports/figures/<phase>/gaussian/` (gitignored, regenerated on demand). 
+**2. Clone the repository and create the environment.**
+
+```bash
+git clone https://github.com/grimmmbo/AIS_RF_matching.git
+cd AIS_RF_matching
+uv sync --frozen
+```
+
+**3. Build the base data (once).** This downloads one month of AIS data (NOAA Marine Cadastre, January 2024, about 15 minutes depending on connection), keeps the cargo vessels, and runs the data preparation notebook that preprocesses the tracks, draws the 5,000-trajectory KDE sample and generates the synthetic RF detections.
+
+```bash
+mkdir -p data/raw                                   # on Windows: mkdir data\raw
+
+# Source: https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html
+uv run python scripts/data_loading/download_AIS_data.py
+# -> data/raw/AIS_01_2024.pkl
+
+uv run python scripts/data_preprocessing/AIS/pre_filter_vessel_type.py
+# -> data/processed/cargo_vessels.parquet
+
+# Run all cells of the notebook
+uv run python -m notebook notebooks/02_data_preparation.ipynb
+# -> data/processed/AIS_sample_no_RF_5000.pkl
+#    data/processed/statistics_sample_5000.pkl
+#    data/processed/gaussian/train_data_sample_5000.pkl   (used by the paper)
+#    data/processed/uniform/train_data_sample_5000.pkl    (alternative error model, not used)
+```
+
+**4. Run the pipeline.** One command runs candidate preselection, the PHMM Forward scores (including the extra pass with kappa=(1,1) for the ablation), the four nearest-neighbor baselines and all evaluation scripts, after cleaning its previous outputs. If step 3 was skipped, it stops and prints the commands that are missing.
+
+```bash
+uv run python -m scripts.run_pipeline
+```
+
+**5. Collect the results.** Tables are written to `reports/tables/<phase>/gaussian/` and figures to `reports/figures/<phase>/gaussian/` (both gitignored and regenerated on demand). The two sections below list which CSV holds which number of the paper and which PNGs it includes. To redraw the figures only, for example after changing plotting code, run `uv run python -m scripts.run_pipeline --plots-only`.
 
 ### Where each paper result comes from
 
@@ -57,84 +87,18 @@ Figures are in `reports/figures/<phase>/gaussian/`.
 
 All other PNGs in `reports/figures/` are additional diagnostics.
 
-## Setup and data
-This project uses **uv** for environment + dependency management (https://pypi.org/project/uv/)
-- **Python version**: see `.python-version` in the repo (3.11)
+## Detailed execution, parameters and options
 
-### Step 1 — Install `uv`
+The pipeline of step 4 runs these stages in order. Each can also be run on its own, which is useful to resume an interrupted run or to try another setting. All stages default to `--error-model gaussian`.
 
 ```bash
-# On macOS and Linux.
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# On Windows.
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Afterward, you can verify the installation by running uv version:
-$ uv version
-```
-
-### Step 2 — Clone this repository
-
-```bash
-git clone https://github.com/Cayah99/AIS_RF_matching.git
-cd AIS_RF_matching
-```
-
-### Step 3 — Create & sync the environment
-
-```bash
-uv sync --frozen
-```
-
-### Step 4 — (optional) Activate the virtualenv
-
-```bash
-# On macOS and Linux.
-source .venv/bin/activate
-
-# On Windows.
-.\.venv\Scripts\activate.bat
-```
-
-### Step 5 — Reproduce the datasets
-
-```bash
-# Make data folder 
-
-# On macOS and Linux.
-mkdir data/raw
-
-# On Windows.
-mkdir data\raw
-
-# 1) Download AIS data  (~15 minutes, depending on connection and CPU)
-# Source: NOAA’s Marine Cadastre (https://coast.noaa.gov/htdata/CMSP/AISDataHandler/2024/index.html)
-# Run:
-    uv run python scripts/data_loading/download_AIS_data.py
-# Output: data/raw/AIS_01_2024.pkl
-
-# 2) Filter op cargotypes
-# Run:  
-    uv run python scripts/data_preprocessing/AIS/pre_filter_vessel_type.py
-# Output: data/processed/cargo_vessels.parquet
-
-# 3) Preprocess data, including synthetic RF signal generation
-# Run full '02_data_preparation.ipynb' notebook
-    uv run python -m notebook notebooks/02_data_preparation.ipynb
-# Output: 
-    # 1. data/processed/AIS_sample_no_RF_5000.pkl
-    # 2. data/processed/statistics_sample_5000.pkl
-    # 3. data/processed/uniform/train_data_sample_5000.pkl        (RF error model: uniform)
-    # 4. data/processed/gaussian/train_data_sample_5000.pkl       (RF error model: gaussian)
-
-# 4) Preselect AIS–RF candidates 
+# 1) Preselect AIS–RF candidates 
 # Fast (seconds on the sample dataset, parallelized across all CPU cores).
 # Defaults to --error-model gaussian (the model used in the paper).
     uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
 # Output: data/processed/gaussian/AIS_RF_preselection_data.pkl
 
-# 5) Forward alignment scores (PHMM) 
+# 2) Forward alignment scores (PHMM) 
 # NOTE: On the full study dataset, this step is compute-intensive (the longest step of the pipeline).
 # Progress is checkpointed per AIS track, so an interrupted run can be resumed
 # by simply re-running the same command.
@@ -143,7 +107,7 @@ mkdir data\raw
 # Output: data/processed/gaussian/AIS_RF_forward_scores_data.pkl
 # Checkpoint: data/processed/gaussian/AIS_RF_forward_scores_checkpoint.pkl
 
-# 6) Nearest-neighbor baselines
+# 3) Nearest-neighbor baselines
 # Runs four lower-bound baselines to compare the PHMM Forward alignment
 # against: plain Euclidean, Haversine (great-circle), point-to-segment
 # (perpendicular distance to the nearest AIS track leg), and time-weighted
@@ -167,7 +131,7 @@ every phase 4 report needed for the paper (top-1 evaluation, baseline
 comparison, dark-vessel detection, misclassification-bias
 significance experiments, kappa sensitivity ablation), cleaning previously
 generated outputs first. It does **not** regenerate the base sample data --
-run `02_data_preparation.ipynb` first ("Reproduce the datasets" above).
+run `02_data_preparation.ipynb` first (step 3 of "Reproducing results").
 
 ```bash
 # gaussian error model (default), everything except leave-one-out
