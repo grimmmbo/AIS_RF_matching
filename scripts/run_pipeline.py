@@ -92,21 +92,51 @@ def data_dir(error_model: str) -> Path:
     return REPO_ROOT / "data" / "processed" / error_model
 
 
+# Base-data chain that run_pipeline does not produce itself, in run order:
+# (output file relative to the repo root, command that creates it).
+BASE_DATA_STEPS = (
+    ("data/raw/AIS_01_2024.pkl",
+     "uv run python scripts/data_loading/download_AIS_data.py"),
+    ("data/processed/cargo_vessels.parquet",
+     "uv run python scripts/data_preprocessing/AIS/pre_filter_vessel_type.py"),
+    ("data/processed/AIS_sample_no_RF_5000.pkl",
+     "uv run python -m notebook notebooks/02_data_preparation.ipynb "
+     "(run all cells)"),
+)
+
+
 def check_base_data(error_model: str) -> None:
-    """Fail fast if notebook 02's output is missing for this model."""
+    """Fail fast with the commands to run if the base data is missing.
+
+    The pipeline starts from the sample data that
+    notebooks/02_data_preparation.ipynb writes. If that is absent, the
+    message lists the earlier steps that are also missing, in order.
+    """
     base = REPO_ROOT / "data" / "processed"
     required = (
         base / "AIS_sample_no_RF_5000.pkl",
         base / "statistics_sample_5000.pkl",
         data_dir(error_model) / "train_data_sample_5000.pkl",
     )
-    missing = [str(p) for p in required if not p.exists()]
-    if missing:
-        raise FileNotFoundError(
-            f"Missing base data for error model {error_model!r}: "
-            f"{missing}. Run notebooks/02_data_preparation.ipynb "
-            "first (see README.md)."
+    missing = [p for p in required if not p.exists()]
+    if not missing:
+        return
+
+    steps = [
+        f"  {n}. {command}"
+        for n, (output, command) in enumerate(
+            (s for s in BASE_DATA_STEPS if not (REPO_ROOT / s[0]).exists()),
+            start=1,
         )
+    ]
+    raise FileNotFoundError(
+        f"The pipeline needs the base data for error model "
+        f"{error_model!r}, which is missing:\n"
+        + "".join(f"  - {p.relative_to(REPO_ROOT)}\n" for p in missing)
+        + "Create it first, in this order:\n" + "\n".join(steps)
+        + "\nThen re-run this command (see README.md, "
+        "\"Reproduce the datasets\")."
+    )
 
 
 def clean_outputs(error_model: str, phase_dirs: list[str]) -> None:
