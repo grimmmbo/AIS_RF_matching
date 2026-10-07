@@ -25,7 +25,7 @@ import pandas as pd
 
 from scripts.evaluation import generate_plots
 from scripts.evaluation.run_phase4b_baseline_comparison import MODEL_NAMES, RANDOM_BASELINE_NAME
-from scripts.evaluation.run_phase4c_bias_experiments import EXPERIMENTS, NN_NAME, PHMM_NAME
+from scripts.evaluation.run_phase4c_bias_experiments import EXPERIMENTS, LOGODDS_NAME, NN_NAME, PHMM_NAME
 from scripts.run_pipeline import ERROR_MODELS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -66,7 +66,7 @@ def regenerate_phase4c_bias_experiments(table_dir: Path, fig_dir: Path) -> int:
         value = _read(table_dir, key)
         if value is not None:
             data[key] = value
-    return generate_plots.phase4c_bias_experiments(data, fig_dir, EXPERIMENTS, PHMM_NAME, NN_NAME)
+    return generate_plots.phase4c_bias_experiments(data, fig_dir, EXPERIMENTS, [PHMM_NAME, LOGODDS_NAME, NN_NAME])
 
 
 def regenerate_phase4c_open_set_evaluation(table_dir: Path, fig_dir: Path) -> int:

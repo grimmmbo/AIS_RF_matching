@@ -115,27 +115,28 @@ def boxplot_correct_chosen_shouldbe(
 
 
 def boxplot_correct_chosen_shouldbe_compare(
-    splits_a: tuple,
-    splits_b: tuple,
+    panels: Sequence[tuple],
     feature: str,
     ylabel: str,
     title: str,
-    names: tuple = ("Method A", "Method B"),
     fmt: str = "{:.2f}",
-    figsize: tuple = (14, 6),
+    figsize: Optional[tuple] = None,
     save_path: Optional[PathLike] = None,
 ) -> plt.Figure:
     """
-    Two-panel Correct/Chosen/Should-be boxplot comparing two methods
+    N-panel Correct/Chosen/Should-be boxplot comparing multiple methods
 
     Args:
-        splits_a, splits_b: (df_correct, df_incorrect, df_shouldbe) for
-            each of the two methods being compared
-        names: Panel titles for splits_a / splits_b
+        panels: [(name, (df_correct, df_incorrect, df_shouldbe)), ...],
+            one panel per method being compared
     """
+    if figsize is None:
+        figsize = (7 * len(panels), 6)
     with plt.rc_context({"font.size": FONT_SIZE, "axes.labelsize": FONT_SIZE, "axes.titlesize": FONT_SIZE}):
-        fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
-        for ax, name, splits in zip(axes, names, (splits_a, splits_b)):
+        fig, axes = plt.subplots(1, len(panels), figsize=figsize, sharey=True)
+        if len(panels) == 1:
+            axes = [axes]
+        for ax, (name, splits) in zip(axes, panels):
             data = [df[feature] for df in splits]
             _draw_group_boxplot(ax, data, GROUP_LABELS, fmt, fmt)
             ax.set_title(name)

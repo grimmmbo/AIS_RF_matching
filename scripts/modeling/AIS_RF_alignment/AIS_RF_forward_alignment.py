@@ -12,11 +12,44 @@ import pandas as pd
 from scripts.modeling.hidden_states.states import *
 from scripts.modeling.AIS_RF_alignment.forward import *
 
+# kappa=(kappa_ais, kappa_rf) -- the (AIS exponent, RF/M exponent) pair
+# hardcoded as (0.5, 2) before --kappa existed. This default is the only
+# kappa whose cache files keep the original, unsuffixed names, so an
+# existing run is reused (and reproduced) rather than recomputed.
+DEFAULT_KAPPA = (0.5, 2.0)
+
+
+def parse_kappa(kappa_str):
+    """Parse a "--kappa a,b" CLI value into a (kappa_ais, kappa_rf) float tuple"""
+    kappa_ais_str, kappa_rf_str = kappa_str.split(",")
+    return float(kappa_ais_str), float(kappa_rf_str)
+
+
+def kappa_cache_suffix(kappa_ais, kappa_rf):
+    """
+    Filename suffix for a given kappa, so each kappa's forward-score
+    cache (and checkpoint) lives in its own file instead of colliding
+    with another kappa's -- except the default kappa, which keeps the
+    original unsuffixed filenames so it reuses (and exactly reproduces)
+    whatever has already been computed for it.
+    """
+    if (kappa_ais, kappa_rf) == DEFAULT_KAPPA:
+        return ""
+
+    def fmt(value):
+        text = f"{value:g}"
+        return text.replace(".", "_").replace("-", "neg")
+
+    return f"_kappa_{fmt(kappa_ais)}_{fmt(kappa_rf)}"
+
 ### RUNNING TIME ###
     # Total processing time 0:21:36.276858 (hh:mm:ss.ms)
     # Average processing time per forward alignment took 0.547953668199831 seconds
+    # Each RF-AIS pair now also runs a second Forward pass against the
+    # null/background model (NullMState, see scripts/modeling/hidden_states/states.py)
+    # to compute the log-odds score, roughly doubling both of the above.
 
-def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items):
+def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items, kappa_ais=0.5, kappa_rf=2.0):
     """
     Compute forward alignment scores for every RF signal matched to a single AIS track
 
@@ -30,6 +63,10 @@ def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items):
         AIS_seq (list[tuple]): AIS sequence as (timestamp, coordinate) pairs
         RF_items (list[tuple]): (RF_signal_id, RF_track_id, RF_seq) tuples, one per
             RF candidate matched to this AIS track
+        kappa_ais (float): Exponent applied to AISState's row-scaled transition
+            probability (default 0.5, the value hardcoded before --kappa existed)
+        kappa_rf (float): Exponent applied to both RFState's and MState's
+            row-scaled transition probability (default 2, ditto)
 
     Returns:
         tuple: (elapsed seconds, list[dict] of per-RF-signal results)
@@ -38,12 +75,27 @@ def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items):
     results = []
 
     for RF_signal_id, RF_track_id, RF_seq in RF_items:
-        states = [BeginState(), AISState(), RFState(), MState(), EndState()]
+        states = [
+            BeginState(), AISState(exponent=kappa_ais), RFState(exponent=kappa_rf),
+            MState(exponent=kappa_rf), EndState(),
+        ]
         forward_model = PHMM_forward(states, EndState())
         forward_score = forward_model.forward(AIS_seq, RF_seq)
 
         # Normalize by AIS sequence length so longer tracks aren't favored
         adjusted_score = forward_score / len(AIS_seq)
+
+        # Null/background model: identical states except M transitions
+        # are forced to zero probability (see NullMState), so the
+        # resulting score_lo = forward_score - null_forward_score
+        # cancels sequence-composition effects shared by both models
+        null_states = [
+            BeginState(), AISState(exponent=kappa_ais), RFState(exponent=kappa_rf),
+            NullMState(exponent=kappa_rf), EndState(),
+        ]
+        null_forward_model = PHMM_forward(null_states, EndState())
+        null_forward_score = null_forward_model.forward(AIS_seq, RF_seq)
+        log_odds_score = forward_score - null_forward_score
 
         results.append({
             "RF_signal_id": RF_signal_id,
@@ -51,6 +103,8 @@ def compute_forward_scores_chunk(AIS_track_id, AIS_seq, RF_items):
             "AIS_track_id": AIS_track_id,
             "forward_score": forward_score,
             "normalized_forward_score": adjusted_score,
+            "null_forward_score": null_forward_score,
+            "log_odds_score": log_odds_score,
             "is_true_match": RF_track_id == AIS_track_id,
         })
 
@@ -119,7 +173,9 @@ def _load_checkpoint(checkpoint_path):
     return done_results, times
 
 
-def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=None):
+def compute_forward_score_parallel(
+    df_train, df_preselection, checkpoint_path=None, kappa_ais=0.5, kappa_rf=2.0,
+):
     """
     Match RF signals to AIS tracks using the Forward algorithm in parallel
 
@@ -135,6 +191,7 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
             track's results as soon as it completes. If given, an
             interrupted run can be restarted and will only recompute AIS
             tracks not yet in the checkpoint.
+        kappa_ais, kappa_rf (float): See compute_forward_scores_chunk()
 
     Returns:
         pd.DataFrame: Forward scores per AIS-RF pair
@@ -202,7 +259,9 @@ def compute_forward_score_parallel(df_train, df_preselection, checkpoint_path=No
     try:
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=spawn_context) as executor:
             futures = {
-                executor.submit(compute_forward_scores_chunk, AIS_track_id, AIS_seq, RF_items): AIS_track_id
+                executor.submit(
+                    compute_forward_scores_chunk, AIS_track_id, AIS_seq, RF_items, kappa_ais, kappa_rf
+                ): AIS_track_id
                 for AIS_track_id, (AIS_seq, RF_items) in pending_chunks.items()
             }
 
@@ -236,30 +295,37 @@ if __name__ == "__main__":
         "--error-model", choices=["uniform", "gaussian"], default="gaussian",
         help="RF bearing-error model whose data folder to read from and write to (default: gaussian)",
     )
+    parser.add_argument(
+        "--kappa", default="0.5,2",
+        help="kappa_ais,kappa_rf exponents for AISState/RFState+MState's row-scaled "
+             "transition probabilities (default: 0.5,2, i.e. unchanged behavior). "
+             "A non-default kappa writes to its own suffixed cache/checkpoint files "
+             "instead of the default ones.",
+    )
     args = parser.parse_args()
+    kappa_ais, kappa_rf = parse_kappa(args.kappa)
 
-    print("Calculating Forward score for AIS-RF pair...")
+    print(f"Calculating Forward score for AIS-RF pair (kappa={kappa_ais},{kappa_rf})...")
 
     start_time = datetime.now()
 
-    # "uniform" keeps the original flat layout for backward compatibility;
-    # other error models live in their own subfolder under data/processed
-    DATA_DIR = (
-        "./data/processed" if args.error_model == "uniform"
-        else f"./data/processed/{args.error_model}"
-    )
+    # Every error model lives in its own subfolder under data/processed
+    DATA_DIR = f"./data/processed/{args.error_model}"
     os.makedirs(DATA_DIR, exist_ok=True)
+
+    KAPPA_SUFFIX = kappa_cache_suffix(kappa_ais, kappa_rf)
 
     SOURCE_PATH1 = f"{DATA_DIR}/train_data_sample_5000.pkl"
     SOURCE_PATH2 = f"{DATA_DIR}/AIS_RF_preselection_data.pkl"
-    DESTINATION_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_data.pkl"
-    CHECKPOINT_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_checkpoint.pkl"
+    DESTINATION_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_data{KAPPA_SUFFIX}.pkl"
+    CHECKPOINT_PATH = f"{DATA_DIR}/AIS_RF_forward_scores_checkpoint{KAPPA_SUFFIX}.pkl"
 
     df_train = pd.read_pickle(SOURCE_PATH1)
     df_preselection = pd.read_pickle(SOURCE_PATH2)
 
     forward_score_df, avg_time_per_iter = compute_forward_score_parallel(
-        df_train, df_preselection, checkpoint_path=CHECKPOINT_PATH
+        df_train, df_preselection, checkpoint_path=CHECKPOINT_PATH,
+        kappa_ais=kappa_ais, kappa_rf=kappa_rf,
     )
     forward_score_df.to_pickle(DESTINATION_PATH)
 

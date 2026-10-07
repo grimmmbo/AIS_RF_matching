@@ -41,6 +41,35 @@ MODELS = [
 ]
 
 
+LOG_ODDS_MODELS = [
+    ("Log-odds PHMM (raw)",
+     "AIS_RF_forward_scores_data.pkl", "AIS_RF_forward_scores_leaveoneout_data.pkl",
+     "log_odds_score", "max"),
+    ("Log-odds PHMM (n^alpha)",
+     "AIS_RF_forward_scores_data.pkl", "AIS_RF_forward_scores_leaveoneout_data.pkl",
+     "log_odds_score_corrected", "max"),
+]
+
+
+def apply_alpha_correction(
+    df: pd.DataFrame, df_AIS_stats: pd.DataFrame, score_col: str, alpha: float, output_col: str,
+) -> pd.DataFrame:
+    """
+    Add a length-corrected score column (score_col / #points ** alpha)
+    to every row of df
+
+    Unlike phmm_length_correction.correct_forward_score(), this has no
+    train/tuning split -- open-set evaluation reuses an alpha already
+    chosen elsewhere (on the closed-set data), it doesn't re-tune one,
+    and applies it uniformly to every row (single- and multi-candidate
+    alike; for a single-candidate RF signal this rescales its one score
+    but can't change which candidate "wins").
+    """
+    df = df.merge(df_AIS_stats[["ID", "#points"]], left_on="AIS_track_id", right_on="ID", how="left")
+    df[output_col] = df[score_col] / (df["#points"] ** alpha)
+    return df.drop(columns=["ID", "#points"])
+
+
 def load_closed_results(data_dir: str, models: Sequence = MODELS) -> dict[str, pd.DataFrame]:
     """Load each model's closed-set scored candidates"""
     return {name: pd.read_pickle(f"{data_dir}/{closed_file}") for name, closed_file, _, _, _ in models}

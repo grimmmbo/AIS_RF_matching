@@ -161,19 +161,21 @@ def phase4b_baseline_comparison(data: dict, fig_dir: Path, model_names: list, ra
     return n
 
 
-def phase4c_bias_experiments(data: dict, fig_dir: Path, experiments: list, phmm_name: str, nn_name: str) -> int:
+def phase4c_bias_experiments(data: dict, fig_dir: Path, experiments: list, method_names: list) -> int:
     n = 0
     for slug, feature, ylabel, fmt, alternative, hypothesis, paired in experiments:
         key = f"experiment_{slug.split('.')[0]}_{feature}_points"
         points = data.get(key)
         if points is None:
             continue
-        splits_phmm = points_by_group(points[points["method"] == phmm_name].drop(columns="method"))
-        splits_nn = points_by_group(points[points["method"] == nn_name].drop(columns="method"))
+        present = points["method"].unique()
+        panels = [
+            (name, points_by_group(points[points["method"] == name].drop(columns="method")))
+            for name in method_names if name in present
+        ]
         plots.boxplot_correct_chosen_shouldbe_compare(
-            splits_phmm, splits_nn, "value", ylabel,
-            f"Experiment {slug}: Correct vs Chosen vs Should-be",
-            names=(phmm_name, nn_name), fmt=fmt,
+            panels, "value", ylabel,
+            f"Experiment {slug}: Correct vs Chosen vs Should-be", fmt=fmt,
             save_path=fig_dir / f"{key.removesuffix('_points')}_boxplot.png",
         )
         n += 1

@@ -36,6 +36,20 @@ MODELS = [
      "nn_distance", "min", "AIS_RF_nn_baseline_time_weighted_scores_checkpoint.pkl"),
 ]
 
+# Log-odds PHMM variants (score_lo = log P_full - log P_null, see
+# AIS_RF_forward_alignment.py / states.NullMState). Kept out of MODELS
+# itself so every existing call site using MODELS' default stays
+# provably unaffected; pass models=MODELS + LOG_ODDS_MODELS explicitly
+# wherever the new rows are wanted. Both point at the same results/
+# checkpoint files as "PHMM Forward" -- the new columns ride along in
+# the same per-(RF, candidate) cache.
+LOG_ODDS_MODELS = [
+    ("Log-odds PHMM (raw)", "AIS_RF_forward_scores_data.pkl",
+     "log_odds_score", "max", "AIS_RF_forward_scores_checkpoint.pkl"),
+    ("Log-odds PHMM (n^alpha)", "AIS_RF_forward_scores_data.pkl",
+     "log_odds_score_corrected", "max", "AIS_RF_forward_scores_checkpoint.pkl"),
+]
+
 
 def load_model_results(data_dir: str, models: Sequence = MODELS) -> dict[str, pd.DataFrame]:
     """Load each model's scored-candidates pickle from data_dir"""
@@ -100,6 +114,10 @@ def build_corrected_phmm_results(
     df_forward_scores_raw: pd.DataFrame,
     df_AIS_stats: pd.DataFrame,
     group_cols: Sequence[str] = DEFAULT_GROUP_COLS,
+    score_col: str = "forward_score",
+    exp_col: str = "normalized_forward_score_exp",
+    raw_score_col: str = "normalized_forward_score",
+    output_col: str = "normalized_forward_score",
 ) -> tuple[pd.DataFrame, float, pd.DataFrame]:
     """
     Length-corrected PHMM Forward results, restricted to alpha's
@@ -114,14 +132,20 @@ def build_corrected_phmm_results(
 
     correct_forward_score() only scores multimatch RF signals, so it
     would silently drop single-match signals that every other model
-    keeps; those are added back from the raw score, which is already
+    keeps; those are added back from raw_score_col, which is already
     exact for a single candidate.
 
+    score_col/exp_col/raw_score_col/output_col let this same procedure
+    build a corrected results frame for a different score (e.g.
+    score_col="log_odds_score") without duplicating it; the defaults
+    reproduce the original PHMM Forward behavior exactly.
+
     Returns:
-        (corrected results, same shape as every other model's results
-        DataFrame -- a drop-in replacement for results["PHMM Forward"];
-        best_alpha; df_preselection_multimatch restricted to the
-        experiments split)
+        (corrected results, with column output_col -- same shape as
+        every other model's results DataFrame, a drop-in replacement
+        for results["PHMM Forward"] when output_col is left at its
+        default; best_alpha; df_preselection_multimatch restricted to
+        the experiments split)
     """
     group_cols = list(group_cols)
     merge_cols = group_cols + ["AIS_track_id", "is_true_match"]
@@ -130,19 +154,23 @@ def build_corrected_phmm_results(
         df_forward_scores_raw, on=merge_cols, how="inner"
     )
     best_alpha, _, _, df_experiments = tune_alpha(
-        df_forward_results_multimatch, df_preselection_multimatch, df_AIS_stats
+        df_forward_results_multimatch, df_preselection_multimatch, df_AIS_stats,
+        score_col=score_col, exp_col=exp_col,
     )
     _, _, all_tracks_exp = correct_forward_score(
-        df_experiments, df_preselection_multimatch, df_AIS_stats, best_alpha
+        df_experiments, df_preselection_multimatch, df_AIS_stats, best_alpha,
+        score_col=score_col, exp_col=exp_col,
     )
-    corrected_multimatch = all_tracks_exp[merge_cols + ["normalized_forward_score_exp"]].rename(
-        columns={"normalized_forward_score_exp": "normalized_forward_score"}
+    corrected_multimatch = all_tracks_exp[merge_cols + [exp_col]].rename(
+        columns={exp_col: output_col}
     )
 
     is_singlematch = df_forward_scores_raw.merge(
         df_preselection_multimatch[group_cols].drop_duplicates(), on=group_cols, how="left", indicator=True
     )["_merge"] == "left_only"
-    singlematch_results = df_forward_scores_raw.loc[is_singlematch, merge_cols + ["normalized_forward_score"]]
+    singlematch_results = df_forward_scores_raw.loc[is_singlematch, merge_cols + [raw_score_col]].rename(
+        columns={raw_score_col: output_col}
+    )
 
     corrected_results = pd.concat([corrected_multimatch, singlematch_results], ignore_index=True)
     df_preselection_multimatch_eval = df_preselection_multimatch.merge(

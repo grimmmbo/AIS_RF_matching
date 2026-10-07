@@ -150,23 +150,24 @@ mkdir data\raw
 # Output: 
     # 1. data/processed/AIS_sample_no_RF_5000.pkl
     # 2. data/processed/statistics_sample_5000.pkl
-    # 3. data/processed/train_data_sample_5000.pkl               (RF error model: uniform)
+    # 3. data/processed/uniform/train_data_sample_5000.pkl        (RF error model: uniform)
     # 4. data/processed/gaussian/train_data_sample_5000.pkl       (RF error model: gaussian)
 
 # 4) Preselect AIS–RF candidates 
 # Fast (seconds on the sample dataset, parallelized across all CPU cores).
-# A precomputed result is included in the repo; to regenerate it yourself, run:
-    uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py
-# Output: data/processed/AIS_RF_preselection_data.pkl
+# Defaults to --error-model gaussian. A precomputed uniform-model result is
+# included in the repo; to regenerate it yourself, run:
+    uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py --error-model uniform
+# Output: data/processed/uniform/AIS_RF_preselection_data.pkl
 
 # 4) Forward alignment scores (PHMM) 
 # NOTE: On the full study dataset, this step is compute-intensive (tens of minutes).
 # Progress is checkpointed per AIS track, so an interrupted run can be resumed
 # by simply re-running the same command.
-# Run: 
+# Run (defaults to --error-model gaussian):
     uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_forward_alignment.py
-# Output: data/processed/AIS_RF_forward_scores_data.pkl
-# Checkpoint: data/processed/AIS_RF_forward_scores_checkpoint.pkl
+# Output: data/processed/gaussian/AIS_RF_forward_scores_data.pkl
+# Checkpoint: data/processed/gaussian/AIS_RF_forward_scores_checkpoint.pkl
 
 # 5) Nearest-neighbor baselines
 # Runs four lower-bound baselines to compare the PHMM Forward alignment
@@ -176,34 +177,39 @@ mkdir data\raw
 # the same distance_threshold=6km/time_window_hours=3 defaults as the
 # preselection step). Fast (seconds to ~2 minutes on the sample dataset);
 # progress is checkpointed per AIS track like the Forward alignment step above.
-# Run:
+# Run (defaults to --error-model gaussian):
     uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_nn_baseline.py
 # Output:
-    # data/processed/AIS_RF_nn_baseline_euclidean_scores_data.pkl
-    # data/processed/AIS_RF_nn_baseline_haversine_scores_data.pkl
-    # data/processed/AIS_RF_nn_baseline_segment_scores_data.pkl
-    # data/processed/AIS_RF_nn_baseline_time_weighted_scores_data.pkl
+    # data/processed/gaussian/AIS_RF_nn_baseline_euclidean_scores_data.pkl
+    # data/processed/gaussian/AIS_RF_nn_baseline_haversine_scores_data.pkl
+    # data/processed/gaussian/AIS_RF_nn_baseline_segment_scores_data.pkl
+    # data/processed/gaussian/AIS_RF_nn_baseline_time_weighted_scores_data.pkl
 ```
 
 ### Full pipeline (one command)
 
-`scripts/run_pipeline.py` runs preselection through baseline scoring,
-leave-one-out open-set negatives, and every phase 4 report (closed-set
-evaluation, baseline comparison, dark-vessel/open-set detection) for
-one or both RF error models, cleaning previously generated outputs
-first. It does **not** regenerate the base sample data -- run
-`02_data_preparation.ipynb` first (Step 5 above).
+`scripts/run_pipeline.py` runs preselection through baseline scoring and
+every phase 4 report needed for the paper (closed-set evaluation, baseline
+comparison, dark-vessel/open-set detection, misclassification-bias
+significance experiments, kappa sensitivity ablation), cleaning previously
+generated outputs first. It does **not** regenerate the base sample data --
+run `02_data_preparation.ipynb` first (Step 5 above).
 
 ```bash
-# Both error models (default), everything except the bias experiments
+# gaussian error model (default), everything except leave-one-out
 uv run python -m scripts.run_pipeline
 
-# One error model only
-uv run python -m scripts.run_pipeline --error-model gaussian
+# Both error models
+uv run python -m scripts.run_pipeline --error-model both
 
-# Also run the phase 4c PHMM-vs-NN misclassification-bias significance
-# experiments (off by default; see "Phase 4 evaluation experiments" below)
-uv run python -m scripts.run_pipeline --bias-experiments
+# One error model only
+uv run python -m scripts.run_pipeline --error-model uniform
+
+# Also run the leave-one-out open-set negatives (a second, independent
+# recompute of preselection+scoring with each RF point's own track
+# excluded; off by default -- the primary dark-vessel/MMSI open-set check
+# always runs regardless)
+uv run python -m scripts.run_pipeline --leave-one-out
 ```
 
 ### RF error models
@@ -218,20 +224,20 @@ each vessel's true AIS position using one of two error models, both defined in
   meters — i.e. a fixed ~2 km systematic offset in a heading-relative cone.
 - **`gaussian`**: an isotropic 2D positional error with no heading dependence
   and no fixed offset. East/north components are each drawn from
-  `Normal(0, sigma)` (default `sigma=2000` meters), so the resulting distance
+  `Normal(0, sigma)` (default `sigma=800` meters), so the resulting distance
   follows a Rayleigh distribution (mean ≈ 1.25 × sigma) and the bearing is
   uniform over the full circle.
 
-The notebook generates both variants in the same run: `uniform` output keeps
-the original flat file layout under `data/processed/` (backward compatible),
-while `gaussian` output is written to its own `data/processed/gaussian/`
-subfolder. Downstream scripts select which one to use via `--error-model`:
+The notebook generates both variants in the same run, each into its own
+subfolder: `uniform` output goes to `data/processed/uniform/`, `gaussian`
+output to `data/processed/gaussian/`. Downstream scripts select which one to
+use via `--error-model` (default: `gaussian`):
 
 ```bash
-# Uses data/processed/ (default)
+# Uses data/processed/uniform/
 uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py --error-model uniform
 
-# Uses data/processed/gaussian/
+# Uses data/processed/gaussian/ (default)
 uv run python scripts/modeling/AIS_RF_preselection/AIS_RF_preselection.py --error-model gaussian
 uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_forward_alignment.py --error-model gaussian
 uv run python scripts/modeling/AIS_RF_alignment/AIS_RF_nn_baseline.py --error-model gaussian

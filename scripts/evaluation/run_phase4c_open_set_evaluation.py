@@ -33,7 +33,9 @@ import pandas as pd
 
 from scripts.evaluation import generate_plots
 from scripts.evaluation.open_set import (
+    LOG_ODDS_MODELS,
     MODELS,
+    apply_alpha_correction,
     build_dark_vessel_frame,
     build_open_set_frame,
     compute_pr,
@@ -42,6 +44,7 @@ from scripts.evaluation.open_set import (
     load_loo_results,
     split_registry_dark_vessels,
 )
+from scripts.evaluation.phmm_length_correction import tune_alpha
 
 
 def diagnostic_prefilter_recall(data_dir: str) -> pd.DataFrame:
@@ -146,36 +149,76 @@ def combined_summary_from_frames(frames: dict[str, pd.DataFrame], open_set_summa
     return pd.DataFrame(rows).merge(open_set_summary, on="model")
 
 
-def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
+def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/processed") -> None:
     plot_data = {}
     df_preselection = pd.read_pickle(f"{data_dir}/AIS_RF_preselection_data.pkl")
+    df_AIS_stats = pd.read_pickle(f"{base_dir}/statistics_sample_5000.pkl").reset_index(drop=True)
     closed_results = load_closed_results(data_dir)
+
+    # Log-odds PHMM: "raw" reuses PHMM Forward's own cached frame (same
+    # file, log_odds_score column added alongside forward_score by
+    # AIS_RF_forward_alignment.py); "n^alpha" applies the length
+    # correction's alpha -- re-tuned here the same way run_phase4_
+    # evaluation.py / run_phase4b_baseline_comparison.py each
+    # independently re-tune it (deterministic given random_state=100,
+    # never persisted to disk) -- uniformly to every row, since open-set
+    # evaluation reuses an alpha already chosen on the closed-set data
+    # rather than re-tuning one here.
+    closed_results["Log-odds PHMM (raw)"] = closed_results["PHMM Forward"]
+    df_preselection_multimatch = df_preselection.groupby(
+        ["RF_track_id", "RF_signal_id"]
+    ).filter(lambda x: x["AIS_track_id"].count() > 1).reset_index(drop=True)
+    df_forward_results_multimatch = df_preselection_multimatch.merge(
+        closed_results["PHMM Forward"],
+        on=["RF_track_id", "RF_signal_id", "AIS_track_id", "is_true_match"], how="inner",
+    )
+    best_alpha_lo, _, _, _ = tune_alpha(
+        df_forward_results_multimatch, df_preselection_multimatch, df_AIS_stats,
+        score_col="log_odds_score", exp_col="log_odds_score_exp",
+    )
+    print(f"Log-odds PHMM length-correction alpha (tuned on the usual 20% held-out split): {best_alpha_lo}")
+    closed_results["Log-odds PHMM (n^alpha)"] = apply_alpha_correction(
+        closed_results["PHMM Forward"], df_AIS_stats, "log_odds_score", best_alpha_lo, "log_odds_score_corrected",
+    )
 
     print("=== 2a: true prefilter recall (diagnostic) ===")
     diagnostic_prefilter_recall(data_dir)
 
     print("\n=== 2b: dark-vessel negatives (primary open-set test) ===")
     vessel_ids = pd.concat([df_preselection["RF_track_id"], df_preselection["AIS_track_id"]]).unique()
-    registry_ids, dark_ids = split_registry_dark_vessels(vessel_ids)
-    print(f"Vessel universe: {len(vessel_ids)}; registry: {len(registry_ids)}; dark (held out): {len(dark_ids)}")
+    # vessel_ids are (MMSI, track_id) segment tuples (step03_make_
+    # continuous_tracks.py splits one vessel's AIS messages into several
+    # continuous-track segments at time gaps). Splitting on the segment
+    # tuple directly could put two segments of the SAME vessel on
+    # opposite sides of the registry/dark split; split unique MMSIs
+    # instead (same function, same seed/fraction) and expand back, so
+    # every segment of a vessel lands on the same side.
+    unique_mmsis = {vid[0] for vid in vessel_ids}
+    registry_mmsis, dark_mmsis = split_registry_dark_vessels(unique_mmsis)
+    registry_ids = {vid for vid in vessel_ids if vid[0] in registry_mmsis}
+    dark_ids = {vid for vid in vessel_ids if vid[0] in dark_mmsis}
+    print(f"Vessel universe: {len(vessel_ids)} segments ({len(unique_mmsis)} unique MMSIs); "
+          f"registry: {len(registry_ids)} segments ({len(registry_mmsis)} MMSIs); "
+          f"dark (held out): {len(dark_ids)} segments ({len(dark_mmsis)} MMSIs)")
 
+    dark_models = MODELS + LOG_ODDS_MODELS
     dark_vessel_frames = {
         name: build_dark_vessel_frame(name, df_preselection, closed_results, registry_ids, dark_ids, score_col, mode)
-        for name, _, _, score_col, mode in MODELS
+        for name, _, _, score_col, mode in dark_models
     }
     n_dark_universe = df_preselection[df_preselection["RF_track_id"].isin(dark_ids)][
         ["RF_signal_id", "RF_track_id"]
     ].drop_duplicates().shape[0]
     # The prefilter runs once in AIS_RF_preselection.py, before any
     # scoring, so automatic-vs-scored is identical across models --
-    # compute it once from PHMM Forward's frame, not from all five.
+    # compute it once from PHMM Forward's frame, not from all models.
     reference_frame = dark_vessel_frames[MODELS[0][0]]
     n_dark_scored_rejections = (reference_frame["rejection_type"] == "scored_rejection").sum()
     dark_rej_summary = rejection_type_summary(n_dark_universe, n_dark_scored_rejections, "dark-vessel")
 
     print("\n--- Dark-vessel rejection metrics ---")
     dark_open_set_summary = open_set_report(
-        dark_vessel_frames, MODELS, dark_rej_summary, table_dir, slug="darkvessel", plot_data=plot_data,
+        dark_vessel_frames, dark_models, dark_rej_summary, table_dir, slug="darkvessel", plot_data=plot_data,
     )
 
     print("\n=== Combined closed-set + open-set summary (dark-vessel, primary) ===")
@@ -198,15 +241,30 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
         loo_surviving = df_preselection_loo[["RF_signal_id", "RF_track_id"]].drop_duplicates()
         loo_rej_summary = rejection_type_summary(len(rf_universe), len(loo_surviving), "leave-one-out")
 
+        # Log-odds columns are only added to the leave-one-out cache by
+        # a separate, deferred rerun of AIS_RF_leave_one_out.py -- only
+        # include them here once that's actually been done, so a
+        # missing column doesn't crash this secondary/supplementary test.
+        has_log_odds_loo = "log_odds_score" in next(iter(loo_results.values())).columns
+        if has_log_odds_loo:
+            loo_models = MODELS + LOG_ODDS_MODELS
+            loo_results["Log-odds PHMM (raw)"] = loo_results["PHMM Forward"]
+            loo_results["Log-odds PHMM (n^alpha)"] = apply_alpha_correction(
+                loo_results["PHMM Forward"], df_AIS_stats, "log_odds_score", best_alpha_lo, "log_odds_score_corrected",
+            )
+        else:
+            loo_models = MODELS
+            print("Log-odds PHMM skipped for leave-one-out -- rerun AIS_RF_leave_one_out.py to include it.")
+
         print("\n--- Leave-one-out rejection metrics ---")
         loo_frames = {
             name: build_open_set_frame(
                 name, df_preselection, df_preselection_loo, closed_results, loo_results, score_col, mode
             )
-            for name, _, _, score_col, mode in MODELS
+            for name, _, _, score_col, mode in loo_models
         }
         loo_open_set_summary = open_set_report(
-            loo_frames, MODELS, loo_rej_summary, table_dir, slug="leaveoneout", plot_data=plot_data,
+            loo_frames, loo_models, loo_rej_summary, table_dir, slug="leaveoneout", plot_data=plot_data,
         )
 
         print("\n=== Combined closed-set + open-set summary (leave-one-out, secondary) ===")
@@ -225,7 +283,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    DATA_DIR = "./data/processed" if args.error_model == "uniform" else f"./data/processed/{args.error_model}"
+    DATA_DIR = f"./data/processed/{args.error_model}"
     FIG_DIR = Path(f"reports/figures/phase4c_open_set_evaluation/{args.error_model}")
     TABLE_DIR = Path(f"reports/tables/phase4c_open_set_evaluation/{args.error_model}")
     FIG_DIR.mkdir(parents=True, exist_ok=True)

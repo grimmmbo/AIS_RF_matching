@@ -45,10 +45,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    DATA_DIR = (
-        "./data/processed" if args.error_model == "uniform"
-        else f"./data/processed/{args.error_model}"
-    )
+    # Every error model lives in its own subfolder under data/processed
+    DATA_DIR = f"./data/processed/{args.error_model}"
     os.makedirs(DATA_DIR, exist_ok=True)
 
     df_train = pd.read_pickle(f"{DATA_DIR}/train_data_sample_5000.pkl")

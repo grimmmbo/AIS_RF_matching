@@ -59,6 +59,42 @@ def get_best_alignments(
     return df
 
 
+def deterministic_best_alignments(
+    df: pd.DataFrame,
+    score_col: str,
+    mode: str = "max",
+    group_cols: Sequence[str] = DEFAULT_GROUP_COLS,
+    tie_break_col: str = "AIS_track_id",
+) -> tuple[pd.DataFrame, int]:
+    """
+    get_best_alignments(), with an explicit, deterministic tie-break
+    and a count of how many RF points were actually tied
+
+    get_best_alignments()'s groupby(...).idxmax()/idxmin() already
+    resolves ties to the first row of the group in the frame's current
+    order; sorting by tie_break_col first (ascending) before delegating
+    to it, unmodified, makes that deterministically "lowest candidate
+    index" with no change to get_best_alignments() or its other callers.
+
+    Args:
+        df, score_col, mode, group_cols: see get_best_alignments()
+        tie_break_col: Column whose lowest value wins a tie
+
+    Returns:
+        (result of get_best_alignments() on the sorted frame, number of
+        RF points -- groups -- where more than one candidate attained
+        the winning score)
+    """
+    group_cols = list(group_cols)
+    sorted_df = df.sort_values(group_cols + [tie_break_col]).reset_index(drop=True)
+
+    extreme = sorted_df.groupby(group_cols)[score_col].transform("max" if mode == "max" else "min")
+    tie_counts = sorted_df[sorted_df[score_col] == extreme].groupby(group_cols).size()
+    n_tied = int((tie_counts > 1).sum())
+
+    return get_best_alignments(sorted_df, score_col, mode, group_cols), n_tied
+
+
 def compute_confusion_counts(
     df_with_chosen: pd.DataFrame,
     match_col: str = "is_true_match",

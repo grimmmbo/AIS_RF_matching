@@ -448,12 +448,8 @@ if __name__ == "__main__":
 
     start_time = datetime.now()
 
-    # "uniform" keeps the original flat layout for backward compatibility;
-    # other error models live in their own subfolder under data/processed
-    DATA_DIR = (
-        "./data/processed" if args.error_model == "uniform"
-        else f"./data/processed/{args.error_model}"
-    )
+    # Every error model lives in its own subfolder under data/processed
+    DATA_DIR = f"./data/processed/{args.error_model}"
     os.makedirs(DATA_DIR, exist_ok=True)
 
     SOURCE_PATH = f"{DATA_DIR}/train_data_sample_5000.pkl"

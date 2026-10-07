@@ -28,6 +28,7 @@ import pandas as pd
 
 from scripts.evaluation import generate_plots
 from scripts.evaluation.baseline_comparison import (
+    LOG_ODDS_MODELS,
     MODELS,
     build_corrected_phmm_results,
     compute_bootstrap_table,
@@ -41,6 +42,8 @@ from scripts.evaluation.baseline_comparison import (
 )
 
 MODEL_NAMES = [name for name, *_ in MODELS]
+ALL_MODELS = MODELS + LOG_ODDS_MODELS
+NN_TIME_WEIGHTED = next(m for m in MODELS if m[0] == "NN Time-weighted")
 RANDOM_BASELINE_NAME = "Random baseline"
 
 
@@ -53,11 +56,21 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
         ["RF_track_id", "RF_signal_id"]
     ).filter(lambda x: x["AIS_track_id"].count() > 1).reset_index(drop=True)
 
+    raw_forward_results = results["PHMM Forward"]
     corrected_phmm, best_alpha, df_preselection_multimatch_eval = build_corrected_phmm_results(
-        df_preselection_multimatch, results["PHMM Forward"], df_AIS_stats
+        df_preselection_multimatch, raw_forward_results, df_AIS_stats
     )
     print(f"PHMM length-correction alpha (tuned on a 20% held-out split): {best_alpha}")
     results["PHMM Forward"] = corrected_phmm
+
+    corrected_logodds, best_alpha_lo, _ = build_corrected_phmm_results(
+        df_preselection_multimatch, raw_forward_results, df_AIS_stats,
+        score_col="log_odds_score", exp_col="log_odds_score_exp",
+        raw_score_col="log_odds_score", output_col="log_odds_score_corrected",
+    )
+    print(f"Log-odds PHMM length-correction alpha (tuned on the same 20% held-out split): {best_alpha_lo}")
+    results["Log-odds PHMM (raw)"] = raw_forward_results
+    results["Log-odds PHMM (n^alpha)"] = corrected_logodds
 
     df_preselection_eval = restrict_to_eval_population(df_preselection, df_preselection_multimatch_eval)
     print(
@@ -67,11 +80,11 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
     df_preselection, df_preselection_multimatch = df_preselection_eval, df_preselection_multimatch_eval
 
     print("Candidate pairs evaluated (all RF signals):", len(df_preselection))
-    comparison_all = evaluate_models(df_preselection, results)
+    comparison_all = evaluate_models(df_preselection, results, models=ALL_MODELS)
     print(comparison_all)
 
     print("\nCandidate pairs evaluated (multimatch RF signals):", len(df_preselection_multimatch))
-    comparison_multimatch = evaluate_models(df_preselection_multimatch, results)
+    comparison_multimatch = evaluate_models(df_preselection_multimatch, results, models=ALL_MODELS)
     print(comparison_multimatch)
 
     random_all = random_choice_metrics(df_preselection)
@@ -88,25 +101,27 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
     comparison_multimatch.to_csv(table_dir / "metrics_multimatch_candidates.csv")
     plot_data = {"metrics_all_candidates": comparison_all, "metrics_multimatch_candidates": comparison_multimatch}
 
-    runtimes = runtime_comparison(data_dir)
+    runtimes = runtime_comparison(data_dir, models=ALL_MODELS)
     print("\nRuntime comparison (avg seconds per candidate pair):")
     print(runtimes)
     runtimes.to_csv(table_dir / "runtime_comparison.csv")
 
-    ranking_comparison_all, ranking_summaries_all = evaluate_ranking_models(df_preselection, results)
+    ranking_comparison_all, ranking_summaries_all = evaluate_ranking_models(
+        df_preselection, results, models=ALL_MODELS
+    )
     print("\nRanking metrics, all RF signals:")
     print(ranking_comparison_all)
     ranking_comparison_all.to_csv(table_dir / "ranking_metrics_all_candidates.csv", index=False)
 
     ranking_comparison_multi, ranking_summaries_multi = evaluate_ranking_models(
-        df_preselection_multimatch, results
+        df_preselection_multimatch, results, models=ALL_MODELS
     )
     print("\nRanking metrics, multimatch RF signals:")
     print(ranking_comparison_multi)
     ranking_comparison_multi.to_csv(table_dir / "ranking_metrics_multimatch_candidates.csv", index=False)
 
     margin_rows = []
-    for name in MODEL_NAMES:
+    for name in MODEL_NAMES + [m[0] for m in LOG_ODDS_MODELS]:
         summary = ranking_summaries_multi[name].dropna(subset=["margin"]).copy()
         margin_rows.append(summary[["RF_signal_id", "RF_track_id", "margin", "rank_of_true"]].assign(model=name))
     margins_multimatch = pd.concat(margin_rows, ignore_index=True)
@@ -116,9 +131,17 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
     mcnemar_table = compute_mcnemar_table(ranking_summaries_all)
     print("\nMcNemar's test, PHMM Forward vs. each baseline (all RF signals):")
     print(mcnemar_table)
+
+    mcnemar_table_logodds = compute_mcnemar_table(
+        ranking_summaries_all, models=[NN_TIME_WEIGHTED] + LOG_ODDS_MODELS, reference="NN Time-weighted"
+    )
+    print("\nMcNemar's test, NN Time-weighted vs. Log-odds PHMM (all RF signals):")
+    print(mcnemar_table_logodds)
+
+    mcnemar_table = pd.concat([mcnemar_table, mcnemar_table_logodds], ignore_index=True)
     mcnemar_table.to_csv(table_dir / "mcnemar_test.csv", index=False)
 
-    bootstrap_table = compute_bootstrap_table(ranking_summaries_all)
+    bootstrap_table = compute_bootstrap_table(ranking_summaries_all, models=ALL_MODELS)
     print("\nBootstrap CIs (Recall@1, MRR), all RF signals:")
     print(bootstrap_table)
     bootstrap_table.to_csv(table_dir / "bootstrap_ci.csv", index=False)
@@ -137,7 +160,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    DATA_DIR = "./data/processed" if args.error_model == "uniform" else f"./data/processed/{args.error_model}"
+    DATA_DIR = f"./data/processed/{args.error_model}"
     FIG_DIR = Path(f"reports/figures/phase4b_baseline_comparison/{args.error_model}")
     TABLE_DIR = Path(f"reports/tables/phase4b_baseline_comparison/{args.error_model}")
     FIG_DIR.mkdir(parents=True, exist_ok=True)

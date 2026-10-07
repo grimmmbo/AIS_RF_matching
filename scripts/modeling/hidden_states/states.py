@@ -124,8 +124,11 @@ class AISState(State):
     """
     AIS state
     """
-    def __init__(self):
+    def __init__(self, exponent: float = 0.5):
         super().__init__("AIS", 1)
+        # kappa exponent smoothing/sharpening the row-scaled transition
+        # probability into this state (default 0.5, see RFState/MState)
+        self.exponent = exponent
 
     def emission(self, observation):
         AIS_obs, _ = observation
@@ -141,8 +144,7 @@ class AISState(State):
         base_prob = normalize(transitions, self.name)
 
         # Smooth transition probabilities to AIS state
-        exponent = 0.5
-        return base_prob ** exponent
+        return base_prob ** self.exponent
 
     def Δ(self):
         # Consumes one AIS observation
@@ -163,8 +165,11 @@ class AISState(State):
         return predecessors
 
 class RFState(State):
-    def __init__(self):
+    def __init__(self, exponent: float = 2):
         super().__init__("RF", 2)
+        # kappa exponent sharpening the row-scaled transition
+        # probability into this state (default 2, matches MState's)
+        self.exponent = exponent
 
     def emission(self, observation):
         _, RF_obs = observation
@@ -180,8 +185,7 @@ class RFState(State):
         base_prob = normalize(transitions, self.name)
 
         # Sharpen transition probabilities to RF state
-        exponent = 2
-        return base_prob ** exponent
+        return base_prob ** self.exponent
 
     def Δ(self):
         # Consumes one RF observation
@@ -200,8 +204,11 @@ class RFState(State):
         return predecessors
 
 class MState(State):
-    def __init__(self):
+    def __init__(self, exponent: float = 2):
         super().__init__("M", 3)
+        # kappa exponent sharpening the row-scaled transition
+        # probability into this state (default 2, matches RFState's)
+        self.exponent = exponent
 
     def emission(self, observation):
         AIS_obs, RF_obs = observation
@@ -217,8 +224,7 @@ class MState(State):
         base_prob = normalize(transitions, self.name)
 
         # Sharpen transition probabilities to M state
-        exponent = 2
-        return base_prob ** exponent
+        return base_prob ** self.exponent
 
     def Δ(self):
         # Consumes one AIS and one RF observation simultaneously
@@ -235,6 +241,44 @@ class MState(State):
         if i == 0 and j == 0:
             predecessors.append("begin")
         return predecessors
+
+class NullMState(MState):
+    """
+    M state for the PHMM null/background model used to compute the
+    log-odds score (score_lo = log P_full - log P_null)
+
+    Identical row-scaling, tau, and kappa as MState, but every
+    transition into M (from "begin", "AIS", "RF", or "M" itself) is
+    forced to zero probability -- forward.py's induction already
+    applies np.log(trans_prob + 1e-300), so a hard 0.0 here becomes
+    the log-space floor (~-690), i.e. "log 0", with no special-casing
+    needed elsewhere. There is nothing left to compute once the
+    result is forced to zero, so this simply returns 0.0
+    unconditionally, covering both the MState.transition() "begin"
+    case and its general (normalize + kappa) case in one line.
+
+    AISState and RFState each compute their own normalize() total
+    independently of MState's value, so using them unchanged alongside
+    this state leaves their AIS/RF probability mass exactly as in the
+    full model -- i.e. the removed M mass is NOT redistributed
+    (renormalize=False, the default this module's null-model state
+    list uses). renormalize=True is accepted for documentation/API
+    completeness (the option the task asks for) but is not wired to
+    any behavior here: redistributing M's mass onto AIS/RF would
+    require AIS/RF-row variants that exclude "M" from their own
+    normalize() total before applying kappa, which no caller in this
+    pipeline currently needs.
+    """
+    def __init__(self, renormalize: bool = False, exponent: float = 2):
+        # exponent is accepted (and stored via MState.__init__) only for
+        # API symmetry with MState/kappa sweeps -- transition() below
+        # never reaches the base_prob ** self.exponent line, so it has
+        # no effect on behavior.
+        super().__init__(exponent=exponent)
+        self.renormalize = renormalize
+
+    def transition(self, prev_state, prev_i, prev_j, AIS_seq, RF_seq):
+        return 0.0
 
 class EndState(State):
     def __init__(self):

@@ -26,6 +26,7 @@ from scripts.evaluation import generate_plots
 from scripts.evaluation.bias_experiments import compute_time_dist_diff, compute_track_behavior, points_frame
 from scripts.evaluation.metrics import (
     calculate_metrics,
+    deterministic_best_alignments,
     get_best_alignments,
     mean_reciprocal_rank,
     recall_at_k,
@@ -199,8 +200,21 @@ def correction_section(
     best_alpha, alpha_results, df_tuning, df_experiments = tune_alpha(
         df_forward_results, df_preselection_multimatch, data["AIS_stats"]
     )
-    pd.Series(alpha_results, name="precision").rename_axis("alpha").to_csv(table_dir / "alpha_search.csv")
+    # Log-odds score (score_lo = log P_full - log P_null, see
+    # AIS_RF_forward_alignment.py / states.NullMState): same tune_alpha
+    # mechanism, grid and seed as the PHMM score above -- the
+    # train_test_split itself doesn't depend on score values, so this
+    # reproduces the identical tuning/experiments split (df_experiments).
+    best_alpha_lo, alpha_results_lo, _, _ = tune_alpha(
+        df_forward_results, df_preselection_multimatch, data["AIS_stats"],
+        score_col="log_odds_score", exp_col="log_odds_score_exp",
+    )
+
+    alpha_search = pd.Series(alpha_results, name="precision").rename_axis("alpha").to_frame()
+    alpha_search["precision_log_odds"] = pd.Series(alpha_results_lo)
+    alpha_search.to_csv(table_dir / "alpha_search.csv")
     print(f"Best alpha is {best_alpha}, with a precision score of {alpha_results[best_alpha]}")
+    print(f"Best log-odds alpha is {best_alpha_lo}, with a precision score of {alpha_results_lo[best_alpha_lo]}")
 
     metrics_exp, chosen_exp, all_tracks_exp = correct_forward_score(
         df_experiments, df_preselection_multimatch, data["AIS_stats"], best_alpha
@@ -211,12 +225,29 @@ def correction_section(
         df_experiments, df_preselection_multimatch, data["AIS_stats"], 1
     )
 
-    def confusion_matrix(metrics):
-        return pd.DataFrame(
+    # Log-odds primary variant: score_lo used directly, with NO length
+    # normalization at all (not even n^1, unlike metrics_before above) --
+    # deterministic_best_alignments gives a reproducible lowest-
+    # candidate-index tie-break and reports how many RF points were tied.
+    chosen_lo_primary, n_tied_lo_primary = deterministic_best_alignments(df_experiments, "log_odds_score")
+    metrics_lo_primary = calculate_metrics(chosen_lo_primary)
+
+    # Log-odds secondary variant: score_lo / n^alpha, alpha tuned above.
+    metrics_lo_secondary, chosen_lo_secondary, all_tracks_lo_secondary = correct_forward_score(
+        df_experiments, df_preselection_multimatch, data["AIS_stats"], best_alpha_lo,
+        score_col="log_odds_score", exp_col="log_odds_score_exp",
+    )
+
+    def confusion_matrix(metrics, label=None):
+        df = pd.DataFrame(
             [[metrics["TP"], metrics["FP"]], [metrics["FN"], metrics["TN"]]],
             index=["Actual Positive", "Actual Negative"],
             columns=["Predicted Positive", "Predicted Negative"],
         )
+        if label is None:
+            return df
+        df.index.name = "actual"
+        return df.assign(score=label).reset_index().set_index(["score", "actual"])
 
     print(f"\nNumber of rows: {len(df_experiments)}")
     print("Confusion Matrix before correction:\n", confusion_matrix(metrics_before))
@@ -228,8 +259,23 @@ def correction_section(
     for key in ["precision", "recall", "f1_score", "accuracy"]:
         print(f"  {key}: {metrics_exp[key]:.4f}")
 
-    confusion_matrix(metrics_before).to_csv(table_dir / "confusion_matrix_before_correction.csv")
-    confusion_matrix(metrics_exp).to_csv(table_dir / "confusion_matrix_after_correction.csv")
+    print(f"\nLog-odds PHMM (raw) tie count (RF points with >1 top-scoring "
+          f"candidate, deterministic lowest-AIS_track_id tie-break): {n_tied_lo_primary}")
+    print("Performance Metrics, log-odds PHMM (raw):")
+    for key in ["precision", "recall", "f1_score", "accuracy"]:
+        print(f"  {key}: {metrics_lo_primary[key]:.4f}")
+    print("Performance Metrics, log-odds PHMM (n^alpha):")
+    for key in ["precision", "recall", "f1_score", "accuracy"]:
+        print(f"  {key}: {metrics_lo_secondary[key]:.4f}")
+
+    pd.concat([
+        confusion_matrix(metrics_before, "PHMM Forward (alpha=1)"),
+        confusion_matrix(metrics_lo_primary, "Log-odds PHMM (raw)"),
+    ]).to_csv(table_dir / "confusion_matrix_before_correction.csv")
+    pd.concat([
+        confusion_matrix(metrics_exp, "PHMM Forward (n^alpha)"),
+        confusion_matrix(metrics_lo_secondary, "Log-odds PHMM (n^alpha)"),
+    ]).to_csv(table_dir / "confusion_matrix_after_correction.csv")
 
     return {
         "best_alpha": best_alpha,
@@ -434,7 +480,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    DATA_DIR = "./data/processed" if args.error_model == "uniform" else f"./data/processed/{args.error_model}"
+    DATA_DIR = f"./data/processed/{args.error_model}"
     FIG_DIR = Path(f"reports/figures/phase4_evaluation/{args.error_model}")
     TABLE_DIR = Path(f"reports/tables/phase4_evaluation/{args.error_model}")
     FIG_DIR.mkdir(parents=True, exist_ok=True)
