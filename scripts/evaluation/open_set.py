@@ -41,6 +41,16 @@ MODELS = [
 ]
 
 
+# Length-corrected Forward (forward_score / n^alpha, alpha tuned on the
+# 20% tuning split). Its score column does not exist in the cached
+# results; run_phase4c_open_set_evaluation.py adds it with
+# apply_alpha_correction() before use.
+FORWARD_CORRECTED_MODEL = (
+    "PHMM Forward (corrected)",
+    "AIS_RF_forward_scores_data.pkl", "AIS_RF_forward_scores_leaveoneout_data.pkl",
+    "forward_score_corrected", "max",
+)
+
 LOG_ODDS_MODELS = [
     ("Log-odds PHMM (raw)",
      "AIS_RF_forward_scores_data.pkl", "AIS_RF_forward_scores_leaveoneout_data.pkl",

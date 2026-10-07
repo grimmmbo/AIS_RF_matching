@@ -14,6 +14,7 @@ created as needed). This lets the same functions be used both by the
 run_phase4*.py scripts (batch, always saving) and interactively in the
 notebooks (call the function, then plt.show()).
 """
+import textwrap
 from pathlib import Path
 from typing import Mapping, Optional, Sequence, Union
 
@@ -63,27 +64,34 @@ def _draw_group_boxplot(
     labels: Sequence[str],
     mean_fmt: str = "{:.2f}",
     median_fmt: str = "{:.2f}",
+    annotate: bool = True,
+    annotation_font_size: Optional[int] = None,
+    box_width: float = 0.35,
+    label_offset: float = 0.2,
 ) -> None:
-    """Draw a Correct/Chosen/Should-be style boxplot with mean/median labels on ax"""
+    """Draw a Correct/Chosen/Should-be style boxplot on ax, with mean/median value labels if annotate"""
     meanpointprops = dict(marker="^", markerfacecolor="tab:orange", markeredgecolor="tab:orange")
     medianprops = dict(color="tab:blue")
     # Narrower boxes (default width is 0.5) leave more clearance before
     # the offset mean/median labels of the neighboring group, which is
     # what was causing adjacent groups' labels to run into each other.
     ax.boxplot(
-        data, tick_labels=labels, widths=0.35, showfliers=False, showmeans=True,
+        data, tick_labels=labels, widths=box_width, showfliers=False, showmeans=True,
         medianprops=medianprops, meanprops=meanpointprops,
     )
+    ax.grid(True, linewidth=0.15)
+    if not annotate:
+        return
     means = [x.mean() for x in data]
     medians = [x.median() for x in data]
     for i, (mean, median) in enumerate(zip(means, medians), start=1):
         ax.text(
-            i + 0.2, mean, mean_fmt.format(mean), color="tab:orange", ha="left", va="center",
-            fontsize=ANNOTATION_FONT_SIZE,
+            i + label_offset, mean, mean_fmt.format(mean), color="tab:orange", ha="left", va="center",
+            fontsize=annotation_font_size or ANNOTATION_FONT_SIZE,
         )
         ax.text(
-            i - 0.2, median, median_fmt.format(median), color="tab:blue", ha="right", va="center",
-            fontsize=ANNOTATION_FONT_SIZE,
+            i - label_offset, median, median_fmt.format(median), color="tab:blue", ha="right", va="center",
+            fontsize=annotation_font_size or ANNOTATION_FONT_SIZE,
         )
     ax.grid(True, linewidth=0.15)
 
@@ -109,6 +117,47 @@ def boxplot_correct_chosen_shouldbe(
         ax.set_title(title)
         ax.set_ylabel(ylabel)
         ax.legend(handles=_mean_median_legend_handles(), loc="best")
+        fig.tight_layout()
+        _maybe_save(fig, save_path)
+    return fig
+
+
+def boxplot_single_method(
+    splits: Sequence[pd.DataFrame],
+    feature: str,
+    ylabel: str,
+    fmt: str = "{:.2f}",
+    ylim: Optional[tuple] = None,
+    legend: bool = False,
+    figsize: tuple = (4.0, 3.4),
+    font_size: int = 13,
+    annotation_font_size: int = 8,
+    save_path: Optional[PathLike] = None,
+) -> plt.Figure:
+    """
+    Single-panel Correct/Chosen/Should-be boxplot of one method, with
+    y-axis label and mean/median value labels but no title (meant to be placed side
+    by side with the same plot for other methods in a paper figure)
+
+    Args:
+        splits: (df_correct, df_incorrect, df_shouldbe) of one method
+        ylim: Shared y-limits, so the plots of different methods are
+            comparable
+        legend: Draw the Median/Mean legend (one plot of a set of
+            side-by-side plots is enough)
+    """
+    with plt.rc_context({"font.size": font_size, "axes.labelsize": font_size, "xtick.labelsize": font_size - 2}):
+        fig, ax = plt.subplots(figsize=figsize)
+        _draw_group_boxplot(
+            ax, [df[feature] for df in splits], GROUP_LABELS, fmt, fmt, annotation_font_size=annotation_font_size,
+            box_width=0.3, label_offset=0.17,
+        )
+        ax.set_xlim(0.4, 3.6)
+        ax.set_ylabel(textwrap.fill(ylabel, 24))
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        if legend:
+            ax.legend(handles=_mean_median_legend_handles(), loc="upper center", ncol=2, fontsize=font_size - 3)
         fig.tight_layout()
         _maybe_save(fig, save_path)
     return fig

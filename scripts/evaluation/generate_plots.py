@@ -17,7 +17,10 @@ not this module, is responsible for explaining a missing key, since
 only it knows whether that means "not computed yet" or "no CSV on
 disk"), and returns how many figures it drew.
 """
+import re
 from pathlib import Path
+
+from matplotlib.cbook import boxplot_stats
 
 from scripts.evaluation import plots
 from scripts.evaluation.bias_experiments import points_by_group, points_diff
@@ -46,10 +49,33 @@ PHASE4_EVALUATION_KEYS = (
     + [f"{name}_points" for name, *_ in DIFF_EXPERIMENTS]
 )
 
+# ROC figures draw only these curves (in this order), not every model in
+# the CSVs: both PHMM Forward scores, both log-odds variants, the one
+# geometric NN baseline reported in the paper (the best of Euclidean /
+# Haversine / Segment, chosen by AUC) and NN time-weighted. A model
+# missing from the data (e.g. a CSV written before it was added) is
+# skipped, not an error. Keys are the CSV model names; values are the
+# legend labels.
+ROC_PLOT_MODELS = {
+    "PHMM Forward": "PHMM Forward (alpha=1)",
+    "PHMM Forward (corrected)": "PHMM Forward (corrected)",
+    "Log-odds PHMM (raw)": "PHMM log-odds (raw)",
+    "Log-odds PHMM (n^alpha)": "PHMM log-odds (n^alpha)",
+    "NN Segment": "NN point-to-segment",
+    "NN Time-weighted": "NN time-weighted",
+}
+
+
+def _roc_models(names) -> list:
+    """The ROC_PLOT_MODELS entries present in names, in ROC_PLOT_MODELS order"""
+    present = set(names)
+    return [name for name in ROC_PLOT_MODELS if name in present]
+
+
 # (slug, title_suffix) for run_phase4c_open_set_evaluation.py's two
 # negative-class constructions
 OPEN_SET_SLUGS = [
-    ("darkvessel", "dark-vessel negatives, held-out registry split"),
+    ("darkvessel", "dark-vessel test, held-out vessels"),
     ("leaveoneout", "leave-one-out negatives, own-vessel exclusion only"),
 ]
 
@@ -161,6 +187,17 @@ def phase4b_baseline_comparison(data: dict, fig_dir: Path, model_names: list, ra
     return n
 
 
+# Experiments (by number) that are also drawn as one title-less boxplot per
+# method, for placing side by side in a paper figure
+PER_METHOD_BOXPLOT_EXPERIMENTS = ("1",)
+# Shorter value-label format for these plots (message counts, whole numbers)
+PER_METHOD_FMT = {"1": "{:.0f}"}
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
 def phase4c_bias_experiments(data: dict, fig_dir: Path, experiments: list, method_names: list) -> int:
     n = 0
     for slug, feature, ylabel, fmt, alternative, hypothesis, paired in experiments:
@@ -179,6 +216,19 @@ def phase4c_bias_experiments(data: dict, fig_dir: Path, experiments: list, metho
             save_path=fig_dir / f"{key.removesuffix('_points')}_boxplot.png",
         )
         n += 1
+        if slug.split(".")[0] in PER_METHOD_BOXPLOT_EXPERIMENTS:
+            whiskers = [
+                stats for _, splits in panels for df in splits
+                for stats in boxplot_stats(df["value"], whis=1.5)
+            ]
+            span = max(w["whishi"] for w in whiskers) - min(w["whislo"] for w in whiskers)
+            ylim = (min(w["whislo"] for w in whiskers) - 0.04 * span, max(w["whishi"] for w in whiskers) + 0.16 * span)
+            for i, (name, splits) in enumerate(panels):
+                plots.boxplot_single_method(
+                    splits, "value", ylabel, fmt=PER_METHOD_FMT.get(slug.split(".")[0], fmt), ylim=ylim, legend=(i == len(panels) - 1),
+                    save_path=fig_dir / f"{key.replace('#', '').removesuffix('_points')}_boxplot_{_slug(name)}.png",
+                )
+                n += 1
     return n
 
 
@@ -193,7 +243,7 @@ def phase4c_open_set_evaluation(data: dict, fig_dir: Path) -> int:
             auc = summary.set_index("model")["auc_overall_raw"]
             ap = summary.set_index("model")["ap_overall_raw"]
             overall_curves = {
-                name: {
+                ROC_PLOT_MODELS[name]: {
                     "fpr": roc_overall.loc[roc_overall["model"] == name, "fpr"].to_numpy(),
                     "tpr": roc_overall.loc[roc_overall["model"] == name, "tpr"].to_numpy(),
                     "roc_auc": auc[name],
@@ -201,7 +251,7 @@ def phase4c_open_set_evaluation(data: dict, fig_dir: Path) -> int:
                     "recall": pr_overall.loc[pr_overall["model"] == name, "recall"].to_numpy(),
                     "ap": ap[name],
                 }
-                for name in auc.index
+                for name in _roc_models(auc.index)
             }
             plots.roc_pr_overall(
                 overall_curves,
@@ -215,12 +265,12 @@ def phase4c_open_set_evaluation(data: dict, fig_dir: Path) -> int:
         if summary is not None and roc_scored is not None:
             auc_scored = summary.set_index("model")["auc_scored_only_raw"]
             scored_only_curves = {
-                name: {
+                ROC_PLOT_MODELS[name]: {
                     "fpr": roc_scored.loc[roc_scored["model"] == name, "fpr"].to_numpy(),
                     "tpr": roc_scored.loc[roc_scored["model"] == name, "tpr"].to_numpy(),
                     "roc_auc": auc_scored[name],
                 }
-                for name in auc_scored.index
+                for name in _roc_models(auc_scored.index)
             }
             plots.roc_single_panel(
                 scored_only_curves,

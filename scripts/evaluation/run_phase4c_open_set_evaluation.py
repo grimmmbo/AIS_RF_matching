@@ -33,6 +33,7 @@ import pandas as pd
 
 from scripts.evaluation import generate_plots
 from scripts.evaluation.open_set import (
+    FORWARD_CORRECTED_MODEL,
     LOG_ODDS_MODELS,
     MODELS,
     apply_alpha_correction,
@@ -172,6 +173,13 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
         closed_results["PHMM Forward"],
         on=["RF_track_id", "RF_signal_id", "AIS_track_id", "is_true_match"], how="inner",
     )
+    best_alpha, _, _, _ = tune_alpha(
+        df_forward_results_multimatch, df_preselection_multimatch, df_AIS_stats,
+    )
+    print(f"PHMM Forward length-correction alpha (tuned on the usual 20% held-out split): {best_alpha}")
+    closed_results[FORWARD_CORRECTED_MODEL[0]] = apply_alpha_correction(
+        closed_results["PHMM Forward"], df_AIS_stats, "forward_score", best_alpha, FORWARD_CORRECTED_MODEL[3],
+    )
     best_alpha_lo, _, _, _ = tune_alpha(
         df_forward_results_multimatch, df_preselection_multimatch, df_AIS_stats,
         score_col="log_odds_score", exp_col="log_odds_score_exp",
@@ -201,7 +209,7 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
           f"registry: {len(registry_ids)} segments ({len(registry_mmsis)} MMSIs); "
           f"dark (held out): {len(dark_ids)} segments ({len(dark_mmsis)} MMSIs)")
 
-    dark_models = MODELS + LOG_ODDS_MODELS
+    dark_models = MODELS + [FORWARD_CORRECTED_MODEL] + LOG_ODDS_MODELS
     dark_vessel_frames = {
         name: build_dark_vessel_frame(name, df_preselection, closed_results, registry_ids, dark_ids, score_col, mode)
         for name, _, _, score_col, mode in dark_models
@@ -247,7 +255,10 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path, base_dir: str = "./data/
         # missing column doesn't crash this secondary/supplementary test.
         has_log_odds_loo = "log_odds_score" in next(iter(loo_results.values())).columns
         if has_log_odds_loo:
-            loo_models = MODELS + LOG_ODDS_MODELS
+            loo_models = MODELS + [FORWARD_CORRECTED_MODEL] + LOG_ODDS_MODELS
+            loo_results[FORWARD_CORRECTED_MODEL[0]] = apply_alpha_correction(
+                loo_results["PHMM Forward"], df_AIS_stats, "forward_score", best_alpha, FORWARD_CORRECTED_MODEL[3],
+            )
             loo_results["Log-odds PHMM (raw)"] = loo_results["PHMM Forward"]
             loo_results["Log-odds PHMM (n^alpha)"] = apply_alpha_correction(
                 loo_results["PHMM Forward"], df_AIS_stats, "log_odds_score", best_alpha_lo, "log_odds_score_corrected",
