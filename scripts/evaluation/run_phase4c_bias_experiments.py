@@ -15,6 +15,7 @@ See notebooks/07_baseline_bias_experiments.ipynb for the interactive,
 plot-only version of this script.
 """
 import argparse
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -31,6 +32,8 @@ from scripts.evaluation.bias_experiments import (
 )
 from scripts.evaluation.metrics import calculate_metrics, get_best_alignments
 from scripts.evaluation.phmm_length_correction import correct_forward_score, tune_alpha
+
+logger = logging.getLogger(__name__)
 
 PHMM_NAME = "PHMM Forward (corrected)"
 NN_NAME = "NN Time-weighted"
@@ -101,14 +104,10 @@ def phmm_reference_splits(data, split) -> tuple:
     best_alpha, alpha_results, _, df_experiments = tune_alpha(
         split["forward_results"], split["preselection_multimatch"], data["AIS_stats"]
     )
-    print(f"Best alpha: {best_alpha}, tuning-set precision: {alpha_results[best_alpha]}")
 
     metrics_phmm, chosen_phmm, all_tracks_phmm = correct_forward_score(
         df_experiments, split["preselection_multimatch"], data["AIS_stats"], best_alpha
     )
-    print("PHMM Forward (corrected) metrics on the validation split:")
-    for key, value in metrics_phmm.items():
-        print(f"  {key}: {value}")
 
     return split_correct_incorrect_shouldbe(all_tracks_phmm, chosen_phmm)
 
@@ -119,15 +118,11 @@ def logodds_reference_splits(data, split) -> tuple:
         split["forward_results"], split["preselection_multimatch"], data["AIS_stats"],
         score_col="log_odds_score", exp_col="log_odds_score_exp",
     )
-    print(f"Best log-odds alpha: {best_alpha}, tuning-set precision: {alpha_results[best_alpha]}")
 
     metrics_lo, chosen_lo, all_tracks_lo = correct_forward_score(
         df_experiments, split["preselection_multimatch"], data["AIS_stats"], best_alpha,
         score_col="log_odds_score", exp_col="log_odds_score_exp",
     )
-    print(f"{LOGODDS_NAME} metrics on the validation split:")
-    for key, value in metrics_lo.items():
-        print(f"  {key}: {value}")
 
     return split_correct_incorrect_shouldbe(all_tracks_lo, chosen_lo)
 
@@ -142,9 +137,6 @@ def nn_time_weighted_splits(data, split) -> tuple:
     )
     chosen_nn = get_best_alignments(df_nn_candidates, "nn_distance", mode="min")
     metrics_nn = calculate_metrics(chosen_nn)
-    print("NN Time-weighted metrics on the validation split:")
-    for key, value in metrics_nn.items():
-        print(f"  {key}: {value}")
 
     return split_correct_incorrect_shouldbe(df_nn_candidates, chosen_nn)
 
@@ -173,30 +165,6 @@ def enrich(df_correct, df_incorrect, df_shouldbe, data, add_trajectory: bool):
     df_incorrect = df_incorrect.sort_values(sort_cols).reset_index(drop=True)
     df_shouldbe = df_shouldbe.sort_values(sort_cols).reset_index(drop=True)
     return df_correct, df_incorrect, df_shouldbe
-
-
-def report_ttest(group1_phmm, group2_phmm, group1_nn, group2_nn, alternative, hypothesis, paired=False):
-    """
-    Run the same (one-sided + two-sided) t-test for PHMM and NN Time-weighted
-
-    group1/group2 follow the incorrect/should-be convention: group1 =
-    incorrect (chosen), group2 = should-be.
-    """
-    test = ttest_rel if paired else lambda a, b, alternative: ttest_ind(
-        a, b, equal_var=False, alternative=alternative
-    )
-
-    print(f"\033[1mH1: {hypothesis}\033[0m")
-    for name, group1, group2 in [(PHMM_NAME, group1_phmm, group2_phmm), (NN_NAME, group1_nn, group2_nn)]:
-        res_one = test(group1, group2, alternative=alternative)
-        res_two = test(group1, group2, alternative="two-sided")
-        t_one, p_one = (res_one.statistic, res_one.pvalue) if paired else res_one
-        t_two, p_two = (res_two.statistic, res_two.pvalue) if paired else res_two
-        verdict = "H0 rejected (H1 direction)" if p_one < 0.05 else (
-            "H0 rejected (opposite direction)" if p_two < 0.05 else "H0 not rejected"
-        )
-        print(f"  {name:<18} t={t_one:8.4f}  p(one-sided)={p_one:.2e}  p(two-sided)={p_two:.2e}  -> {verdict}")
-    print()
 
 
 # Column-label aliases for the two original models, kept exactly as
@@ -265,31 +233,28 @@ def misclassification_overlap(df_incorrect_phmm: pd.DataFrame, df_incorrect_nn: 
         "of_shared_mistakes_same_wrong_track": same_wrong_track,
         "of_shared_mistakes_same_wrong_track_pct": same_wrong_track / len(both) if both else float("nan"),
     }
-    print("Misclassification overlap, PHMM vs NN Time-weighted:")
-    for key, value in result.items():
-        print(f"  {key}: {value}")
     return result
 
 
 def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
     data = load_data(data_dir)
     split = build_validation_split(data)
-    print("RF points in the shared validation split:", split["n_val"])
+    diagnostics = [("validation split", "RF points", split["n_val"])]
 
     df_correct_phmm, df_incorrect_phmm, df_shouldbe_phmm = phmm_reference_splits(data, split)
-    print("PHMM correct / incorrect (chosen) / should-be:",
-          len(df_correct_phmm), len(df_incorrect_phmm), len(df_shouldbe_phmm))
-
     df_correct_nn, df_incorrect_nn, df_shouldbe_nn = nn_time_weighted_splits(data, split)
-    print("NN Time-weighted correct / incorrect (chosen) / should-be:",
-          len(df_correct_nn), len(df_incorrect_nn), len(df_shouldbe_nn))
-
     df_correct_lo, df_incorrect_lo, df_shouldbe_lo = logodds_reference_splits(data, split)
-    print(f"{LOGODDS_NAME} correct / incorrect (chosen) / should-be:",
-          len(df_correct_lo), len(df_incorrect_lo), len(df_shouldbe_lo))
+    for name, groups in (
+        (PHMM_NAME, (df_correct_phmm, df_incorrect_phmm, df_shouldbe_phmm)),
+        (NN_NAME, (df_correct_nn, df_incorrect_nn, df_shouldbe_nn)),
+        (LOGODDS_NAME, (df_correct_lo, df_incorrect_lo, df_shouldbe_lo)),
+    ):
+        diagnostics += [
+            (f"group sizes, {name}", label, len(df)) for label, df in zip(("correct", "chosen", "should-be"), groups)
+        ]
 
     overlap = misclassification_overlap(df_incorrect_phmm, df_incorrect_nn)
-    pd.Series(overlap).to_csv(table_dir / "misclassification_overlap.csv", header=["value"])
+    diagnostics += [("misclassification overlap, PHMM vs NN time-weighted", k, v) for k, v in overlap.items()]
 
     df_correct_phmm, df_incorrect_phmm, df_shouldbe_phmm = enrich(
         df_correct_phmm, df_incorrect_phmm, df_shouldbe_phmm, data, add_trajectory=False
@@ -309,20 +274,13 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
     plot_data = {}
     summary_rows = []
     for slug, feature, ylabel, fmt, alternative, hypothesis, paired in EXPERIMENTS:
-        print(f"\n=== Experiment {slug} ===")
         key = f"experiment_{slug.split('.')[0]}_{feature}_points"
         points = pd.concat([
             points_frame(*splits_phmm, feature).assign(method=PHMM_NAME),
             points_frame(*splits_nn, feature).assign(method=NN_NAME),
             points_frame(*splits_lo, feature).assign(method=LOGODDS_NAME),
         ], ignore_index=True)
-        points.to_csv(table_dir / f"{key}.csv", index=False)
         plot_data[key] = points
-        report_ttest(
-            df_incorrect_phmm[feature], df_shouldbe_phmm[feature],
-            df_incorrect_nn[feature], df_shouldbe_nn[feature],
-            alternative=alternative, hypothesis=hypothesis, paired=paired,
-        )
         summary_rows.append(effect_row(
             slug, feature,
             [("PHMM", df_incorrect_phmm, df_shouldbe_phmm),
@@ -332,11 +290,16 @@ def main(data_dir: str, fig_dir: Path, table_dir: Path) -> None:
         ))
 
     summary_table = pd.DataFrame(summary_rows).set_index("experiment")
-    print("\n=== Summary: is PHMM's bias gone in NN Time-weighted / the log-odds score? ===")
-    print(summary_table)
     summary_table.to_csv(table_dir / "bias_experiments_summary.csv")
+    pd.DataFrame(diagnostics, columns=["section", "item", "value"]).to_csv(table_dir / "diagnostics.csv", index=False)
 
+    generate_plots.save_plot_data(plot_data, table_dir)
     generate_plots.phase4c_bias_experiments(plot_data, fig_dir, EXPERIMENTS, [PHMM_NAME, LOGODDS_NAME, NN_NAME])
+    n_sig = int((summary_table.filter(like="effect") != "n.s.").to_numpy().sum())
+    logger.info(
+        "Bias experiments: %d significant effects across %d tests (two-sided, p<0.05), see bias_experiments_summary.csv.",
+        n_sig, summary_table.filter(like="effect").size,
+    )
 
 
 if __name__ == "__main__":
@@ -348,6 +311,7 @@ if __name__ == "__main__":
         help="RF bearing-error model whose data folder to read from (default: gaussian)",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     DATA_DIR = f"./data/processed/{args.error_model}"
     FIG_DIR = Path(f"reports/figures/phase4c_bias_experiments/{args.error_model}")

@@ -25,9 +25,8 @@ statistics_sample_5000.pkl, train_data_sample_5000.pkl); that is
 produced interactively by notebooks/02_data_preparation.ipynb.
 
 --plots-only skips preselection/scoring/evaluation entirely and just
-redraws every figure from the plot-input cache each evaluation step
-already wrote (see scripts/evaluation/plot_cache.py and
-scripts/evaluation/regenerate_plots.py) -- use it after tweaking
+redraws every figure from the plot data each evaluation step already
+stored in reports/plot_data (see scripts/evaluation/regenerate_plots.py) -- use it after tweaking
 scripts/evaluation/plots.py, when nothing about the underlying scores
 changed.
 
@@ -156,6 +155,7 @@ def clean_outputs(error_model: str, phase_dirs: list[str]) -> None:
             path = REPO_ROOT / "reports" / kind / phase_dir / error_model
             if path.exists():
                 shutil.rmtree(path)
+        (REPO_ROOT / "reports" / "plot_data" / phase_dir / f"{error_model}.pkl").unlink(missing_ok=True)
 
     logger.info(
         "Cleaned %d cached file(s) and prior report dirs for %s",

@@ -5,25 +5,49 @@ drawn from.
 
 Each run_phase4*.py script calls the matching function here once, at
 the end of main(), with the exact DataFrames it just computed (and
-also saved to CSV). scripts/evaluation/regenerate_plots.py calls the
-SAME functions with the equivalent DataFrames reloaded from those
-CSVs. Either way the title/label text is written exactly once, here --
-neither caller repeats it.
+also stored with save_plot_data). scripts/evaluation/regenerate_plots.py
+calls the SAME functions with the DataFrames reloaded from
+reports/plot_data. Either way the title/label text is written exactly
+once, here -- neither caller repeats it.
 
-Each phaseN_* function takes `data: dict[str, pd.DataFrame]` keyed by
-that phase's reports/tables/*.csv stem and `fig_dir: Path`, draws
-whatever keys are present (silently skipping the rest -- the caller,
-not this module, is responsible for explaining a missing key, since
-only it knows whether that means "not computed yet" or "no CSV on
-disk"), and returns how many figures it drew.
+Each phaseN_* function takes `data: dict[str, pd.DataFrame]` (the
+figure inputs a script stores with save_plot_data) and `fig_dir: Path`,
+draws whatever keys are present (silently skipping the rest) and
+returns how many figures it drew.
 """
 import re
 from pathlib import Path
 
+import pandas as pd
 from matplotlib.cbook import boxplot_stats
 
 from scripts.evaluation import plots
 from scripts.evaluation.bias_experiments import points_by_group, points_diff
+
+def plot_data_path(table_dir: Path) -> Path:
+    """Pickle holding a phase's figure inputs.
+
+    reports/tables/<phase>/<error_model> maps to
+    reports/plot_data/<phase>/<error_model>.pkl, so the result tables
+    folder only holds results, not point-level figure inputs.
+    """
+    reports = table_dir.parents[2]
+    return (reports / "plot_data" / table_dir.parent.name
+            / f"{table_dir.name}.pkl")
+
+
+def save_plot_data(data: dict[str, pd.DataFrame], table_dir: Path) -> None:
+    """Save a phase's figure inputs, keyed as the phaseN_* functions expect."""
+    path = plot_data_path(table_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle(data, path)
+
+
+def load_plot_data(table_dir: Path) -> dict[str, pd.DataFrame] | None:
+    """Load what save_plot_data stored, or None if it was not saved yet."""
+    path = plot_data_path(table_dir)
+    return pd.read_pickle(path) if path.exists() else None
+
 
 # (name, ylabel, title, xlabel, mean_fmt, median_fmt) for the boxplot +
 # diff-histogram figures of run_phase4_evaluation.py's experiments 2-4
@@ -41,13 +65,6 @@ DIFF_EXPERIMENTS = [
     ("experiment4b_distance", "Kilometers", "Distance difference (without outliers)",
      "Distance", "mean {:.1f}", "median {:.1f}"),
 ]
-
-# CSV stems run_phase4_evaluation.py writes and phase4_evaluation() reads,
-# exposed so regenerate_plots.py doesn't have to restate this list
-PHASE4_EVALUATION_KEYS = (
-    ["candidate_counts", "score_margins", "experiment1_before_correction_points", "experiment1_after_correction_points"]
-    + [f"{name}_points" for name, *_ in DIFF_EXPERIMENTS]
-)
 
 # ROC figures draw only these curves (in this order), not every model in
 # the CSVs: both PHMM Forward scores, both log-odds variants, the one
@@ -274,7 +291,6 @@ def phase4c_open_set_evaluation(data: dict, fig_dir: Path) -> int:
             }
             plots.roc_single_panel(
                 scored_only_curves,
-                title=f"ROC, scored rejections only ({title_suffix})",
                 save_path=fig_dir / f"roc_scored_only_{slug}.png",
             )
             n += 1

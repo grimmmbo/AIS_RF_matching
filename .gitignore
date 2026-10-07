@@ -10,6 +10,7 @@
 # regenerated on every run, not source
 reports/figures/
 reports/tables/
+reports/plot_data/
 
 # Python cache
 __pycache__/

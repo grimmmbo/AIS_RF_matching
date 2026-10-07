@@ -31,6 +31,7 @@ default kappa reuses the existing, already-computed cache):
   uv run python -m scripts.modeling.AIS_RF_alignment.AIS_RF_forward_alignment --kappa 1,1
 """
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -41,6 +42,8 @@ from scripts.evaluation.metrics import calculate_metrics, deterministic_best_ali
 from scripts.evaluation.open_set import apply_alpha_correction, build_dark_vessel_frame, compute_roc, split_registry_dark_vessels
 from scripts.evaluation.phmm_length_correction import correct_forward_score, tune_alpha
 from scripts.modeling.AIS_RF_alignment.AIS_RF_forward_alignment import DEFAULT_KAPPA, kappa_cache_suffix, parse_kappa
+
+logger = logging.getLogger(__name__)
 
 MERGE_COLS = ["RF_track_id", "RF_signal_id", "AIS_track_id", "is_true_match"]
 
@@ -170,24 +173,20 @@ def load_expected_baseline(error_model: str) -> dict:
     eval_dir = Path(f"reports/tables/phase4_evaluation/{error_model}")
     open_set_dir = Path(f"reports/tables/phase4c_open_set_evaluation/{error_model}")
 
-    before_csv = eval_dir / "confusion_matrix_before_correction.csv"
-    after_csv = eval_dir / "confusion_matrix_after_correction.csv"
+    confusion_csv = eval_dir / "confusion_matrices.csv"
     open_set_csv = open_set_dir / "open_set_summary_darkvessel.csv"
 
     precision = {
-        VARIANT_ALPHA1: _confusion_precision(before_csv, "PHMM Forward (alpha=1)"),
-        VARIANT_ALPHA_TUNED: _confusion_precision(after_csv, "PHMM Forward (n^alpha)"),
-        VARIANT_LO_RAW: _confusion_precision(before_csv, "Log-odds PHMM (raw)"),
-        VARIANT_LO_TUNED: _confusion_precision(after_csv, "Log-odds PHMM (n^alpha)"),
+        VARIANT_ALPHA1: _confusion_precision(confusion_csv, "PHMM Forward (alpha=1)"),
+        VARIANT_ALPHA_TUNED: _confusion_precision(confusion_csv, "PHMM Forward (n^alpha)"),
+        VARIANT_LO_RAW: _confusion_precision(confusion_csv, "Log-odds PHMM (raw)"),
+        VARIANT_LO_TUNED: _confusion_precision(confusion_csv, "Log-odds PHMM (n^alpha)"),
     }
 
     open_set_df = pd.read_csv(open_set_csv).set_index("model")["auc_scored_only_raw"]
     auc_scored_only = {
         VARIANT_ALPHA1: open_set_df["PHMM Forward"],
-        # No existing published row uses an alpha-tuned (rather than
-        # alpha=1) PHMM Forward score for open-set evaluation -- nothing
-        # to check this variant against.
-        VARIANT_ALPHA_TUNED: None,
+        VARIANT_ALPHA_TUNED: open_set_df["PHMM Forward (corrected)"],
         VARIANT_LO_RAW: open_set_df["Log-odds PHMM (raw)"],
         VARIANT_LO_TUNED: open_set_df["Log-odds PHMM (n^alpha)"],
     }
@@ -208,7 +207,7 @@ def validate_against_baseline(rows: list[dict], error_model: str, tol: float = 1
     try:
         expected = load_expected_baseline(error_model)
     except (FileNotFoundError, KeyError, IndexError) as exc:
-        print(f"Could not load existing baseline results to validate against ({exc}); skipping check.")
+        logger.warning("Could not load existing baseline results to validate against (%s); skipping check.", exc)
         return
 
     mismatches = []
@@ -226,12 +225,8 @@ def validate_against_baseline(rows: list[dict], error_model: str, tol: float = 1
             )
 
     if mismatches:
-        print("\nSTOP: kappa=0.5,2 does not reproduce the existing published results:")
-        for line in mismatches:
-            print(f"  - {line}")
+        logger.error("kappa=0.5,2 does not reproduce the existing results:\n  - %s", "\n  - ".join(mismatches))
         sys.exit(1)
-
-    print("\nkappa=0.5,2 reproduces the existing published results exactly (within tolerance).")
 
 
 def main(error_model: str, kappas: list[tuple[float, float]], base_dir: str = "./data/processed") -> pd.DataFrame:
@@ -255,11 +250,10 @@ def main(error_model: str, kappas: list[tuple[float, float]], base_dir: str = ".
 
     all_rows = []
     for kappa_ais, kappa_rf in kappas:
-        print(f"\n=== kappa = {kappa_ais},{kappa_rf} ===")
         try:
             df_forward_results_raw = load_forward_results(data_dir, kappa_ais, kappa_rf)
         except FileNotFoundError as exc:
-            print(exc)
+            logger.error("%s", exc)
             sys.exit(1)
 
         df_forward_results_multimatch = df_preselection_multimatch.merge(
@@ -290,25 +284,17 @@ def main(error_model: str, kappas: list[tuple[float, float]], base_dir: str = ".
             }
             for variant in [VARIANT_ALPHA1, VARIANT_ALPHA_TUNED, VARIANT_LO_RAW, VARIANT_LO_TUNED]
         ]
-        for row in kappa_rows:
-            print(f"  {row['variant']}: alpha={row['alpha']}, "
-                  f"closed_set_precision={row['closed_set_precision']}, "
-                  f"auc_scored_only={row['auc_scored_only']}")
-
         if (kappa_ais, kappa_rf) == DEFAULT_KAPPA:
             validate_against_baseline(kappa_rows, error_model)
 
         all_rows.extend(kappa_rows)
 
     result = pd.DataFrame(all_rows)
-    print("\n=== Kappa sensitivity summary ===")
-    print(result)
-
     table_dir = Path(f"reports/tables/phase4_evaluation/{error_model}")
     table_dir.mkdir(parents=True, exist_ok=True)
     out_path = table_dir / "kappa_sensitivity.csv"
     result.to_csv(out_path, index=False)
-    print(f"\nSaved to {out_path}")
+    logger.info("Kappa ablation: %d rows saved to %s", len(result), out_path.name)
 
     return result
 
@@ -325,5 +311,6 @@ if __name__ == "__main__":
              "(default: 0.5,2;1,1)",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     main(args.error_model, parse_kappa_list(args.kappas))
